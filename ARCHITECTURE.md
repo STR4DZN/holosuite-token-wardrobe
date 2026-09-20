@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.8.0
+# Arquitetura — HoloSuite Token Wardrobe v0.8.1
 
 ## Componentes
 
@@ -114,3 +114,20 @@ this.socketdata.userId
 Sem contexto autenticado, a ação falha com `TW_AUTH_UNAUTHENTICATED`.
 
 Isso impede spoof do ID de outro Player no payload.
+
+
+## Zoom-out
+
+`crop.zoom` passa a aceitar `0.10..6.00`.
+
+A escala de referência continua sendo `cover` em `zoom=1`.
+
+`computeFitZoom()` calcula:
+
+```text
+containScale / coverScale
+```
+
+Isso permite ao botão `Imagem inteira` chegar ao enquadramento que mostra a imagem inteira sem alterar o modelo de dados.
+
+Em eixos cujo tamanho renderizado fica menor que o canvas, `pan=0` é imposto para manter centralização previsível.

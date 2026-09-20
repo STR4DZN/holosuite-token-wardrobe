@@ -4,7 +4,7 @@
     <header class="twl-cropper-header">
       <div>
         <span class="twl-kicker">ENQUADRAMENTO MANUAL</span>
-        <h2>Arraste e aproxime</h2>
+        <h2>Arraste, aproxime ou afaste</h2>
         <p>O que ficar fora do círculo será realmente removido.</p>
       </div>
       <span class="twl-tokenizer-chip is-ok">
@@ -31,8 +31,8 @@
       <input
         data-role="zoom"
         type="range"
-        min="1"
-        max="6"
+        min="{{zoomMin}}"
+        max="{{zoomMax}}"
         step="0.01"
         value="{{zoom}}">
       <i class="fa-solid fa-magnifying-glass-plus"></i>
@@ -85,9 +85,13 @@
   </div>
 
   <footer class="twl-cropper-footer">
-    <button type="button" data-action="resetCrop">
+    <button type="button" data-action="resetCrop" title="Voltar ao enquadramento preenchendo todo o token">
       <i class="fa-solid fa-rotate-left"></i>
-      Resetar
+      100%
+    </button>
+    <button type="button" data-action="fitImage" title="Afastar até mostrar a imagem inteira">
+      <i class="fa-solid fa-expand"></i>
+      Imagem inteira
     </button>
     <span class="twl-spacer"></span>
     <button type="button" data-action="cancelCrop">Cancelar</button>

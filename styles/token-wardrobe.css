@@ -647,3 +647,15 @@
     grid-template-columns: repeat(2, minmax(0,1fr));
   }
 }
+
+
+@media (max-width: 520px) {
+  .twl-cropper-footer {
+    flex-wrap: wrap;
+  }
+
+  .twl-cropper-footer .twl-spacer {
+    flex-basis: 100%;
+    height: 0;
+  }
+}

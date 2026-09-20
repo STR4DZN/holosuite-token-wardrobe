@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.8.0
+# HoloSuite Token Wardrobe v0.8.1
 
 Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core e ao Tokenizer.
 
@@ -104,3 +104,18 @@ O Tokenizer standalone mantém seu próprio callback de atualização normal; o 
 ## Dependência
 
 `socketlib` é dependência obrigatória para o relay GM autenticado.
+
+
+## v0.8.1 — zoom-out
+
+O cropper agora permite zoom de **10% a 600%**.
+
+- `100%`: comportamento antigo, cobrindo completamente o token;
+- abaixo de `100%`: permite afastar imagens retangulares;
+- `Imagem inteira`: calcula automaticamente o zoom necessário para mostrar toda a imagem;
+- roda do mouse também pode reduzir abaixo de 100%;
+- quando uma dimensão fica menor que o canvas, ela permanece centralizada nesse eixo.
+
+O arquivo final usa exatamente o mesmo zoom/crop do preview.
+
+Também foi corrigido um caminho antigo do render final que podia ignorar a `frameColor` escolhida.

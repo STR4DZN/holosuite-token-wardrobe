@@ -6,6 +6,8 @@ const TOKENIZER_ID = "vtta-tokenizer";
 const FLAG_KEY = "state";
 const SCHEMA_VERSION = 4;
 const DEFAULT_FRAME_COLOR = "#8B5A2B";
+const MIN_CROP_ZOOM = 0.10;
+const MAX_CROP_ZOOM = 6;
 
 const SETTING_PLAYER_MANAGE = "playerCanManage";
 const SETTING_AUTO_CLOSE = "autoCloseAfterSwitch";
@@ -641,7 +643,9 @@ function normalizeCrop(crop) {
   const panY = Number(crop?.panY);
 
   return {
-    zoom: Number.isFinite(zoom) ? Math.min(6, Math.max(1, zoom)) : 1,
+    zoom: Number.isFinite(zoom)
+      ? Math.min(MAX_CROP_ZOOM, Math.max(MIN_CROP_ZOOM, zoom))
+      : 1,
     panX: Number.isFinite(panX) ? panX : 0,
     panY: Number.isFinite(panY) ? panY : 0
   };
@@ -1058,18 +1062,31 @@ function computeBaseScale(imageWidth, imageHeight, canvasSize) {
   return Math.max(canvasSize / imageWidth, canvasSize / imageHeight);
 }
 
+function computeFitZoom(imageWidth, imageHeight, canvasSize) {
+  if (!imageWidth || !imageHeight || !canvasSize) return 1;
+
+  const coverScale = computeBaseScale(imageWidth, imageHeight, canvasSize);
+  const containScale = Math.min(canvasSize / imageWidth, canvasSize / imageHeight);
+  const zoom = containScale / coverScale;
+
+  return Math.min(1, Math.max(MIN_CROP_ZOOM, zoom));
+}
+
 function clampPan({imageWidth, imageHeight, canvasSize, zoom, panX, panY}) {
   const base = computeBaseScale(imageWidth, imageHeight, canvasSize);
-  const scale = base * Math.max(1, zoom);
+  const safeZoom = Math.min(MAX_CROP_ZOOM, Math.max(MIN_CROP_ZOOM, Number(zoom) || 1));
+  const scale = base * safeZoom;
   const drawWidth = imageWidth * scale;
   const drawHeight = imageHeight * scale;
 
-  const maxX = Math.max(0, (drawWidth - canvasSize) / 2);
-  const maxY = Math.max(0, (drawHeight - canvasSize) / 2);
+  // When an axis is smaller than the canvas after zooming out, keep that axis
+  // centered instead of snapping the user back to cover mode.
+  const maxX = drawWidth > canvasSize ? (drawWidth - canvasSize) / 2 : 0;
+  const maxY = drawHeight > canvasSize ? (drawHeight - canvasSize) / 2 : 0;
 
   return {
-    panX: Math.min(maxX, Math.max(-maxX, panX)),
-    panY: Math.min(maxY, Math.max(-maxY, panY))
+    panX: Math.min(maxX, Math.max(-maxX, Number(panX) || 0)),
+    panY: Math.min(maxY, Math.max(-maxY, Number(panY) || 0))
   };
 }
 
@@ -1474,6 +1491,7 @@ class TokenCropperApp extends BaseApplication {
     position: {width: 520, height: 640},
     actions: {
       resetCrop: TokenCropperApp.#resetCrop,
+      fitImage: TokenCropperApp.#fitImage,
       saveCrop: TokenCropperApp.#saveCrop,
       cancelCrop: TokenCropperApp.#cancelCrop
     }
@@ -1507,6 +1525,8 @@ class TokenCropperApp extends BaseApplication {
       name: this.entryName,
       zoom: this.crop.zoom,
       zoomPercent: Math.round(this.crop.zoom * 100),
+      zoomMin: MIN_CROP_ZOOM,
+      zoomMax: MAX_CROP_ZOOM,
       frameColor: this.frameColor,
       frameColorPresets: frameColorPresets(),
       frameReady: this.frameConfig.ready,
@@ -1557,7 +1577,10 @@ class TokenCropperApp extends BaseApplication {
     zoom.value = String(this.crop.zoom);
 
     zoom.addEventListener("input", event => {
-      this.crop.zoom = Math.min(6, Math.max(1, Number(event.currentTarget.value || 1)));
+      this.crop.zoom = Math.min(
+        MAX_CROP_ZOOM,
+        Math.max(MIN_CROP_ZOOM, Number(event.currentTarget.value || 1))
+      );
       this.#normalizePan(canvas.width);
       zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
       this.#draw(canvas);
@@ -1637,7 +1660,10 @@ class TokenCropperApp extends BaseApplication {
       event.preventDefault();
 
       const delta = event.deltaY > 0 ? -0.08 : 0.08;
-      this.crop.zoom = Math.min(6, Math.max(1, this.crop.zoom + delta));
+      this.crop.zoom = Math.min(
+        MAX_CROP_ZOOM,
+        Math.max(MIN_CROP_ZOOM, this.crop.zoom + delta)
+      );
       zoom.value = String(this.crop.zoom);
       zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
 
@@ -1731,10 +1757,35 @@ class TokenCropperApp extends BaseApplication {
       ctx,
       this.frameImage,
       size,
-      this.frameConfig.tintFrame ? this.frameConfig.tintColor : null
+      this.frameColor
     );
 
     return canvas;
+  }
+
+  static async #fitImage() {
+    if (!this.sourceImage) return;
+
+    const canvas = this.element?.querySelector?.('[data-role="crop-canvas"]');
+    const zoom = this.element?.querySelector?.('[data-role="zoom"]');
+    const zoomValue = this.element?.querySelector?.('[data-role="zoom-value"]');
+    const size = canvas?.width || 512;
+
+    this.crop.zoom = computeFitZoom(
+      this.sourceImage.naturalWidth,
+      this.sourceImage.naturalHeight,
+      size
+    );
+    this.crop.panX = 0;
+    this.crop.panY = 0;
+
+    if (zoom) zoom.value = String(this.crop.zoom);
+    if (zoomValue) zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
+
+    if (canvas) {
+      this.#normalizePan(size);
+      this.#draw(canvas);
+    }
   }
 
   static async #resetCrop() {

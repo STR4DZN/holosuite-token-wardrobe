@@ -1,8 +1,8 @@
 {
   "id": "holosuite-token-wardrobe",
   "title": "HoloSuite Token Wardrobe",
-  "description": "HoloSuite token art manager with owner-controlled URL editing, per-token border colors, silent GM relay, and Tokenizer no-upload-permission compatibility bridge.",
-  "version": "0.8.0",
+  "description": "HoloSuite token art manager with owner-controlled zoom-out/fit, per-token border colors, silent GM relay, and Tokenizer compatibility.",
+  "version": "0.8.1",
   "authors": [
     {
       "name": "STR4DZN"
@@ -10,7 +10,7 @@
   ],
   "url": "https://github.com/STR4DZN/holosuite-token-wardrobe",
   "manifest": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/latest/download/module.json",
-  "download": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/download/v0.8.0/holosuite-token-wardrobe-v0.8.0.zip",
+  "download": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/download/v0.8.1/holosuite-token-wardrobe-v0.8.1.zip",
   "compatibility": {
     "minimum": "13",
     "verified": "13.351",
