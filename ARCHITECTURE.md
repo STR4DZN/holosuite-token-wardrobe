@@ -1,49 +1,70 @@
-# Auditoria e Arquitetura — v0.2.1
+# Arquitetura / Auditoria — v0.3.0
 
-## Correções da v0.2.0
+## Integração Tokenizer
 
-- API getGallery protegida por ownership.
-- switchImage revalida Actor e Token.
-- canUserModify usado quando disponível.
-- URLs externas bloqueadas para players.
-- protocolos perigosos bloqueados.
-- extensões validadas.
-- preload antes do update.
-- lock por Token contra spam/race.
-- update redundante evitado.
-- Actor sintético recuperável via Token.
-- prioridade de Character sem Token corrigida.
-- selects usam listeners change em _onRender.
-- DialogV2 substitui Dialog V1.
-- Dynamic Token Ring fixo gera aviso.
-- favoritos não alteram order.
-- schemaVersion + migração.
-- registerApp só marca sucesso se retornar registro.
-- bringToFront usado em ApplicationV2.
-- lazy loading e decoding assíncrono.
+API pública usada:
+
+```js
+game.modules.get("vtta-tokenizer").api.autoToken(actor, {
+  tokenFilename: source,
+  updateActor: false,
+  isWildCard: false,
+  nameSuffix,
+  disposition
+})
+```
+
+O código do Tokenizer mostra que `autoToken` gera o View internamente, inicializa a imagem,
+adiciona as camadas padrão, gera blob e faz upload. `updateActor` só é executado quando
+`mergedOptions.updateActor` é verdadeiro. Nosso adapter passa `false`.
+
+## Por que não usamos autoToken(actor) puro
+
+O fluxo padrão do Tokenizer pode atualizar:
+- Actor portrait;
+- Prototype Token;
+- Tokens ativos;
+- Dynamic Ring;
+- escala, dependendo das configurações.
+
+Isso não serve para este módulo. A integração usa somente composição/upload e depois o Wardrobe
+aplica o arquivo final com seu próprio update restrito a `texture.src`.
+
+## Origem versus resultado
+
+`source` nunca é perdido.
+`src` é a arte pronta para o Canvas.
+
+Isso permite trocar borda/enquadramento e reprocessar sem precisar recuperar a imagem original.
+
+## Enquadramento
+
+O Tokenizer centraliza a imagem no Layer durante `Layer.fromImage`. A configuração
+`default-crop-image` escolhe entre enquadramento que contém a imagem e crop para preencher.
+Quando uma borda é adicionada, `default-token-offset` é aplicado e auto-escalado pelo Tokenizer.
+
+## CORS / URL
+
+Para URL remota, o Wardrobe faz preflight compatível com o comportamento público do Tokenizer
+e respeita as configurações `proxy` e `force-proxy`. Se falhar, a entrada não é criada.
+
+## Locks
+
+- troca de token: lock por token;
+- processamento Tokenizer: lock por Actor.
+
+Isso evita duas composições/uploads concorrentes disputarem o mesmo contexto.
 
 ## Invariante
 
-Nenhuma troca atualiza outro campo do Token além de `texture.src`.
+Existe uma única chamada `token.document.update` no módulo e o payload é somente:
 
-## Release
+```js
+{"texture.src": cleanSrc}
+```
 
-Ainda requer smoke test real dentro de Foundry 13.351 com GM e Player.
+## Ajuste sem abrir Tokenizer
 
-## Segunda auditoria
-
-- mídia reduzida a imagens estáticas;
-- URLs remotas bloqueadas para todos;
-- `..` path traversal bloqueado;
-- FilePicker.browse usa apenas `extensions`/`bucket`, conforme API pública v13;
-- renomear usa DialogV2.input;
-- busca passou a filtrar o DOM sem re-render por tecla;
-- favoritos são apenas marcação visual e não reagrupam a ordem.
-
-## Terceira auditoria
-
-- URLs externas são removidas já na normalização, portanto não chegam às thumbnails.
-- paths com `..`, inclusive URL-encoded, são rejeitados.
-- galeria legada v0.1/v0.2 em `flags[module].gallery` é migrada para `state`.
-- limite efetivo protegido entre 1 e 100 imagens.
-- registro no HoloSuite é idempotente.
+O setting `vtta-tokenizer.default-token-offset` é player-scoped no Tokenizer.
+O Wardrobe oferece **Ajustar recuo** e grava nesse mesmo setting. Assim cada usuário pode
+afinar a entrada da imagem na borda sem abrir a aplicação do Tokenizer.

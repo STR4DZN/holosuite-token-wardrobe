@@ -42,6 +42,50 @@
       </label>
     {{/if}}
 
+    <section class="twl-tokenizer-panel {{#if tokenizerStateOk}}is-ok{{/if}} {{#if tokenizerStateWarn}}is-warn{{/if}} {{#if tokenizerStateError}}is-error{{/if}}">
+      <div class="twl-tokenizer-head">
+        <div>
+          <span class="twl-tokenizer-eyebrow">PROCESSAMENTO AUTOMÁTICO</span>
+          <strong><i class="fa-solid fa-wand-magic-sparkles"></i> Tokenizer — {{tokenizer.label}}</strong>
+        </div>
+        {{#if tokenizer.version}}<span class="twl-version">v{{tokenizer.version}}</span>{{/if}}
+      </div>
+
+      <div class="twl-tokenizer-status">
+        <span><i class="fa-solid fa-power-off"></i> Auto: {{#if tokenizer.autoEnabled}}ON{{else}}OFF{{/if}}</span>
+        <span><i class="fa-solid fa-upload"></i> Upload: {{#if tokenizer.canUpload}}OK{{else}}BLOQUEADO{{/if}}</span>
+        <span><i class="fa-regular fa-circle"></i> Borda: {{#if tokenizer.frameEnabled}}ON{{else}}OFF{{/if}}</span>
+        <span><i class="fa-solid fa-crop-simple"></i> Enquadramento: {{#if tokenizer.cropEnabled}}PREENCHER{{else}}CONTER{{/if}}</span>
+        {{#if tokenizer.offset}}<span><i class="fa-solid fa-arrows-left-right-to-line"></i> Offset: {{tokenizer.offset}}</span>{{/if}}
+      </div>
+
+      <div class="twl-tokenizer-actions">
+        {{#if canAdjustTokenizerOffset}}
+          <button type="button" data-action="setTokenizerOffset">
+            <i class="fa-solid fa-arrows-left-right-to-line"></i>
+            Ajustar recuo
+          </button>
+        {{/if}}
+
+        {{#if canConfigureTokenizer}}
+          <button type="button" data-action="toggleAutoTokenizer">
+            <i class="fa-solid fa-bolt"></i>
+            Auto ON/OFF
+          </button>
+          {{#unless tokenizer.frameEnabled}}
+            <button type="button" data-action="enableTokenizerFrame">
+              <i class="fa-regular fa-circle"></i>
+              Ativar borda padrão
+            </button>
+          {{/unless}}
+          <button type="button" data-action="toggleTokenizerCrop">
+            <i class="fa-solid fa-crop-simple"></i>
+            Alternar enquadramento
+          </button>
+        {{/if}}
+      </div>
+    </section>
+
     {{#unless hasToken}}
       <section class="twl-empty">
         <i class="fa-solid fa-location-crosshairs"></i>
@@ -76,6 +120,7 @@
                 <img src="{{src}}" alt="{{name}}" loading="lazy" decoding="async">
                 {{#if active}}<span class="twl-active-badge">ATUAL</span>{{/if}}
                 {{#if favorite}}<span class="twl-star"><i class="fa-solid fa-star"></i></span>{{/if}}
+                <span class="twl-processor-badge {{#if tokenizerProcessed}}is-tokenizer{{/if}}">{{processorLabel}}</span>
               </button>
 
               <div class="twl-card-footer">
@@ -85,6 +130,7 @@
                   <div class="twl-card-actions">
                     <button type="button" data-action="toggleFavorite" data-id="{{id}}" title="Favoritar"><i class="fa-solid fa-star"></i></button>
                     <button type="button" data-action="renameImage" data-id="{{id}}" title="Renomear"><i class="fa-solid fa-pen"></i></button>
+                    <button type="button" data-action="reprocessImage" data-id="{{id}}" title="Reprocessar com Tokenizer"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
                     <button type="button" data-action="moveUp" data-id="{{id}}" title="Mover para cima"><i class="fa-solid fa-arrow-up"></i></button>
                     <button type="button" data-action="moveDown" data-id="{{id}}" title="Mover para baixo"><i class="fa-solid fa-arrow-down"></i></button>
                     <button type="button" data-action="removeImage" data-id="{{id}}" title="Remover"><i class="fa-solid fa-trash"></i></button>
@@ -98,7 +144,7 @@
         <section class="twl-empty compact">
           <i class="fa-regular fa-images"></i>
           <h2>Nenhuma aparência encontrada</h2>
-          <p>Adicione imagens ou limpe a busca.</p>
+          <p>Adicione arquivos, uma pasta ou uma URL.</p>
         </section>
       {{/if}}
 
@@ -106,6 +152,7 @@
         <footer class="twl-toolbar">
           <button type="button" data-action="addCurrent"><i class="fa-solid fa-camera"></i> Arte atual</button>
           <button type="button" data-action="pickFile"><i class="fa-solid fa-image"></i> Escolher arquivo</button>
+          <button type="button" data-action="addUrl"><i class="fa-solid fa-link"></i> Adicionar URL</button>
           <button type="button" data-action="importFolder"><i class="fa-solid fa-folder-open"></i> Importar pasta</button>
         </footer>
       {{/if}}

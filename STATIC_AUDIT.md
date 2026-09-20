@@ -1,37 +1,54 @@
-# STATIC + MOCK AUDIT — v0.2.1
+# AUDITORIA v0.3.0 — Tokenizer + URL
 
-PASS — Node `--check`.
-PASS — module.json parse.
-PASS — HoloSuite registerApp mocked successfully.
-PASS — playerVisible=true.
-PASS — authorized gallery available.
-PASS — unauthorized gallery hidden.
-PASS — valid switch changes token art.
-PASS — exactly one TokenDocument.update call exists in source.
-PASS — TokenDocument.update payload is exactly `{"texture.src": cleanSrc}`.
-PASS — repeated current-image selection produces no extra update.
-PASS — missing image fails before update.
-PASS — remote URL fails before update.
-PASS — unregistered image fails before update.
-PASS — unauthorized token fails.
-PASS — concurrent switches serialize.
-PASS — every concurrent update payload contains only texture.src.
-PASS — target image is sanitized before canUserModify check.
-PASS — DialogV2.input used.
-PASS — ApplicationV2 used.
-PASS — FilePicker image/folder patterns use v13 public API shapes.
-PASS — search is DOM-side and does not re-render each keystroke.
-PASS — Dynamic Token Ring fixed-subject warning retained.
+## Resultado automatizado
 
-Remaining real-environment validation:
-- Foundry VTT 13.351 actual UI render;
-- LANCER ownership behavior;
-- actual HoloSuite launcher click;
-- hosting-specific FilePicker permissions;
-- Lancer Automations regression.
+PASS — JavaScript `node --check`.
+PASS — mock HoloSuite registration.
+PASS — mock Tokenizer 5.0.3 API integration.
+PASS — URL source preserved separately from generated token.
+PASS — Tokenizer receives `updateActor: false`.
+PASS — Tokenizer receives the selected URL/file through `tokenFilename`.
+PASS — mock Actor received zero `Actor.update()` calls.
+PASS — source contains zero `actor.update()` calls.
+PASS — exactly one `token.document.update()` exists.
+PASS — its payload is exactly `{"texture.src": cleanSrc}`.
+PASS — generated Tokenizer output is used as the gallery `src`.
+PASS — remote CORS failure prevents gallery creation.
+PASS — missing FILES_UPLOAD prevents automatic processing.
+PASS — required frame disabled prevents automatic processing.
+PASS — raw URL mode works when automatic Tokenizer is disabled.
+PASS — unauthorized Actor gallery remains inaccessible.
+PASS — unauthorized Token cannot be changed.
+PASS — v0.2.1 schema migrates to schema v2.
+PASS — reprocessing uses the original `source`.
+PASS — HoloSuite Core remains required.
+PASS — Tokenizer is declared as a recommended module.
+PASS — GM can enable Tokenizer default frame from Wardrobe.
+PASS — GM can toggle contain/fill crop behavior from Wardrobe.
+PASS — user can adjust Tokenizer player-scoped offset from Wardrobe.
+PASS — dangerous URL schemes remain blocked.
 
-PASS — external paths filtered before UI.
-PASS — encoded/literal parent traversal rejected.
-PASS — legacy v0.1/v0.2 gallery migration mocked.
-PASS — gallery limit clamped to max 100.
-PASS — HoloSuite registration idempotent.
+## Segurança de estado
+
+O Wardrobe não chama:
+- `Actor.update()`;
+- `prototypeToken.update()`;
+- update de Dynamic Ring;
+- update de escala, visão, posição, condição ou automação.
+
+O Tokenizer é invocado como processador com `updateActor:false`.
+
+## Dependência externa
+
+O comportamento automático foi construído contra a API pública atual do módulo
+`vtta-tokenizer`, especialmente `api.autoToken(actor, options)`.
+
+## Validação ainda necessária no mundo real
+
+1. Foundry VTT 13.351 real.
+2. HoloSuite real.
+3. Tokenizer real com a borda que o grupo usa.
+4. Player real com FILES_UPLOAD.
+5. Uma URL com CORS permitido.
+6. Uma URL sem CORS para confirmar a mensagem de erro.
+7. LANCER + Lancer Automations após troca de arte.

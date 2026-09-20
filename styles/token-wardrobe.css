@@ -95,3 +95,99 @@
   .twl-image-button { height:135px; }
   .twl-card-actions { grid-template-columns:repeat(5,minmax(0,1fr)); }
 }
+
+
+.twl-tokenizer-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--twl-line);
+  background: rgba(255,255,255,.025);
+}
+
+.twl-tokenizer-panel.is-ok {
+  border-color: rgba(100, 235, 170, .35);
+  background: rgba(100, 235, 170, .055);
+}
+
+.twl-tokenizer-panel.is-warn {
+  border-color: rgba(242,198,109,.35);
+  background: rgba(242,198,109,.055);
+}
+
+.twl-tokenizer-panel.is-error {
+  border-color: rgba(255,110,110,.34);
+  background: rgba(255,110,110,.05);
+}
+
+.twl-tokenizer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.twl-tokenizer-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.twl-tokenizer-eyebrow {
+  display: block;
+  color: var(--twl-muted);
+  font-size: 9px;
+  letter-spacing: .14em;
+}
+
+.twl-version {
+  color: var(--twl-muted);
+  font-size: 10px;
+}
+
+.twl-tokenizer-status {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.twl-tokenizer-status span {
+  padding: 4px 7px;
+  border: 1px solid var(--twl-line);
+  background: rgba(0,0,0,.14);
+  color: var(--twl-muted);
+  font-size: 10px;
+}
+
+.twl-tokenizer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.twl-tokenizer-actions button {
+  min-height: 30px;
+  font-size: 11px;
+}
+
+.twl-processor-badge {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(5,9,12,.88);
+  color: var(--twl-muted);
+  font-size: 8px;
+  letter-spacing: .08em;
+}
+
+.twl-processor-badge.is-tokenizer {
+  border-color: rgba(116,231,255,.3);
+  color: var(--twl-accent);
+}
+
+.twl-card-actions {
+  grid-template-columns: repeat(6, 1fr);
+}
