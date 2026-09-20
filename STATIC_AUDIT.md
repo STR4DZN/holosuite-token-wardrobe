@@ -1,65 +1,59 @@
-# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.4.0
+# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.4.1
 
-## Resultado
+## Bugs reproduzidos pela print
 
-PASS — `node --check`.
-PASS — registro HoloSuite mockado.
-PASS — `playerVisible: true`.
-PASS — seleção de frame Tokenizer PC.
-PASS — seleção de frame tintado.
-PASS — suporte explícito LANCER `pilot` e `mech` como PC.
-PASS — diretório de upload Tokenizer PC.
-PASS — parser de diretório `[data]`.
-PASS — parser de diretório `[s3:bucket]`.
-PASS — matemática de cover para imagem horizontal.
-PASS — matemática de cover para imagem vertical.
-PASS — pan limitado para nunca revelar vazio.
-PASS — zoom limitado de 100% a 600%.
-PASS — URL Discord-like preservada.
-PASS — `javascript:` bloqueado.
-PASS — traversal `../` bloqueado.
-PASS — traversal URL-encoded bloqueado.
-PASS — migração schema v2 -> v3.
-PASS — crop default aplicado a entrada legada.
-PASS — galeria de Actor não autorizado permanece invisível.
-PASS — troca de Token não autorizado falha.
-PASS — exatamente um `token.document.update()` existe.
-PASS — payload final é exatamente `{"texture.src": cleanSrc}`.
+1. A moldura cinza/pedra era proveniente do caminho de frame tintado.
+2. A imagem era desenhada em todo o canvas quadrado; a área circular era apenas uma indicação visual.
+
+## Correções
+
+PASS — Wardrobe ignora frame-tint.
+PASS — LANCER `pilot` e `mech` usam Tokenizer classic PC frame.
+PASS — frame PC é lido do valor DEFAULT registrado pelo Tokenizer.
+PASS — fallback é `modules/vtta-tokenizer/img/default-frame-pc.png`.
+PASS — preview usa recorte circular real.
+PASS — exportação usa o mesmo recorte circular real.
+PASS — `clip()` ocorre antes de `drawImage()`.
+PASS — círculo de recorte usa centro `(size/2,size/2)` e raio `size/2`.
+PASS — canvas final não recebe fundo opaco antes da exportação.
+PASS — cantos externos permanecem transparentes no WEBP.
+PASS — frame é desenhado somente depois da imagem recortada.
+PASS — pan/zoom continuam sendo respeitados antes do clip.
+
+## Regressão
+
+PASS — Node `--check`.
+PASS — crop horizontal.
+PASS — crop vertical.
+PASS — zoom 100%–600%.
+PASS — pan limitado.
+PASS — URL http/https.
+PASS — traversal bloqueado.
+PASS — diretório de upload Tokenizer.
+PASS — migração de schema anterior.
+PASS — ownership de Actor.
+PASS — ownership de Token.
+PASS — HoloSuite `playerVisible`.
+PASS — scroll responsivo permanece.
+PASS — nenhuma chamada `autoToken()`.
 PASS — nenhuma chamada `Actor.update()`.
 PASS — nenhuma chamada `prototypeToken.update()`.
-PASS — nenhuma chamada `autoToken()`.
-PASS — nenhum uso de `default-crop-image`.
-PASS — nenhum uso de `default-token-offset`.
-PASS — moldura vem das configurações do Tokenizer.
-PASS — upload usa diretório do Tokenizer.
-PASS — URL é inserida diretamente no app.
-PASS — editor possui drag manual.
-PASS — editor possui zoom manual.
-PASS — editor possui Resetar.
-PASS — editor possui Reenquadrar.
-PASS — app principal possui rolagem vertical.
-PASS — editor possui rolagem vertical.
-PASS — height chain usa `min-height:0` + flex.
-PASS — limites responsivos por `vw`/`vh`.
-PASS — layout reduzido em telas pequenas.
-PASS — footer do editor fica separado da área rolável.
+PASS — exatamente um `token.document.update()`.
+PASS — payload exatamente `{"texture.src": cleanSrc}`.
 
-## Mudança arquitetural decisiva
+## Resultado dos mocks
 
-A v0.4.0 não chama mais `vtta-tokenizer.api.autoToken()`.
+- `circularClip: PASS`
+- `classicBrownFrame: PASS`
+- `cropMath: PASS`
+- `frameConfig: PASS`
+- `uploadDirectory: PASS`
+- `migration: PASS`
 
-O Tokenizer agora serve como fonte das configurações visuais:
-- frame PC/NPC;
-- frame tintado e tint;
-- diretório de upload;
-- tamanho de saída;
-- proxy de URL.
+## Teste real recomendado
 
-O enquadramento é 100% controlado pelo usuário.
-
-## Validação que ainda depende do Foundry real
-
-- confirmar visualmente a moldura customizada específica do seu Tokenizer;
-- confirmar CORS de links reais do Discord/Pinterest usados na mesa;
-- confirmar upload no hosting real;
-- validar interação final com LANCER Automations no mundo.
+1. Colar a mesma URL da print.
+2. Arrastar/zoom no editor.
+3. Confirmar que os quatro cantos mostram transparência no preview.
+4. Salvar.
+5. Confirmar no Canvas que só o círculo + moldura marrom aparecem.

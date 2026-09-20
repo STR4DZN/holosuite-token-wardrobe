@@ -376,7 +376,14 @@
   border: 1px solid var(--twl-line-strong);
   border-radius: 10px;
   overflow: hidden;
-  background: #030608;
+  background:
+    linear-gradient(45deg, rgba(255,255,255,.045) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255,255,255,.045) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255,255,255,.045) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255,255,255,.045) 75%),
+    #030608;
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
   touch-action: none;
 }
 

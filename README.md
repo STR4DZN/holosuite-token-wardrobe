@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.4.0
+# HoloSuite Token Wardrobe v0.4.1
 
 ## Fluxo atual
 
@@ -95,3 +95,15 @@ A integração classifica Actors `pilot` e `mech` como PC para escolher:
 - `image-upload-directory`.
 
 Actors `npc` e `deployable` permanecem no caminho NPC.
+
+
+## Correções v0.4.1
+
+- removido uso de frame tintado no Wardrobe;
+- `pilot`, `mech`, `character` e `pc` usam o **frame clássico padrão de PC do Tokenizer**;
+- o preview e o arquivo final agora aplicam máscara circular real;
+- pixels fora do círculo ficam transparentes no WEBP;
+- a imagem não pode mais aparecer nos cantos quadrados;
+- preview usa fundo quadriculado para deixar a transparência visível.
+
+A escolha do frame clássico usa o valor **default registrado pelo Tokenizer**, não o frame tintado ativo no mundo.

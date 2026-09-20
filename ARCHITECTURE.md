@@ -1,4 +1,4 @@
-# Arquitetura v0.4.0
+# Arquitetura v0.4.1
 
 ## Mudança principal
 
@@ -58,3 +58,28 @@ Isso corrige o problema anterior em telas pequenas onde o conteúdo era cortado 
 
 O adapter não replica cegamente a classificação genérica do Tokenizer:
 `pilot` e `mech` são tratados como PC, evitando selecionar a moldura/diretório NPC no sistema LANCER.
+
+
+## Correção de frame
+
+A v0.4.1 ignora `frame-tint` dentro do Wardrobe e lê o valor `default`
+registrado em `vtta-tokenizer.default-frame-pc`.
+
+Para LANCER `pilot` e `mech`, isso seleciona a moldura clássica de PC
+em vez de `plain-marble-frame-grey.png`.
+
+## Máscara circular real
+
+Preview e exportação usam a mesma função `drawCroppedSource()`:
+
+```text
+save()
+beginPath()
+arc(center, radius=size/2)
+clip()
+drawImage(...)
+restore()
+```
+
+Portanto os cantos ficam transparentes antes de a moldura ser desenhada.
+O WEBP exportado contém o recorte, não apenas uma indicação visual de área segura.

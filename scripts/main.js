@@ -400,37 +400,43 @@ function getActorTokenType(actor) {
   return "npc";
 }
 
+function safeTokenizerDefault(key, fallback = null) {
+  try {
+    const setting = game.settings.settings?.get?.(`${TOKENIZER_ID}.${key}`);
+    return setting?.default ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function getTokenizerFrameConfig(actor, token) {
   const module = game.modules.get(TOKENIZER_ID);
   const active = Boolean(module?.active);
   const canUpload = game.user?.can?.("FILES_UPLOAD") === true;
   const frameEnabled = active && safeTokenizerSetting("add-frame-default", false) === true;
-  const tintFrame = active && safeTokenizerSetting("frame-tint", false) === true;
   const tokenType = getActorTokenType(actor);
   const disposition = Number(token?.document?.disposition ?? actor?.prototypeToken?.disposition ?? 0);
 
+  // Wardrobe intentionally uses Tokenizer's CLASSIC built-in frames, not frame-tint mode.
+  // For LANCER pilot/mech this resolves to the standard brown PC ring.
   let rawFrame = "";
-  let tintColor = null;
 
   if (active && frameEnabled) {
-    if (tintFrame) {
-      rawFrame = safeTokenizerSetting("default-frame-tint", "");
-
-      if (tokenType === "pc") {
-        tintColor = safeTokenizerSetting("default-frame-tint-pc", null);
-      } else if (disposition === 1) {
-        tintColor = safeTokenizerSetting("default-frame-tint-friendly", null);
-      } else if (disposition === 0) {
-        tintColor = safeTokenizerSetting("default-frame-tint-neutral", null);
-      } else {
-        tintColor = safeTokenizerSetting("default-frame-tint-hostile", null);
-      }
-    } else if (tokenType === "pc") {
-      rawFrame = safeTokenizerSetting("default-frame-pc", "");
+    if (tokenType === "pc") {
+      rawFrame = safeTokenizerDefault(
+        "default-frame-pc",
+        "[data] modules/vtta-tokenizer/img/default-frame-pc.png"
+      );
     } else if (disposition === 0 || disposition === 1) {
-      rawFrame = safeTokenizerSetting("default-frame-neutral", "");
+      rawFrame = safeTokenizerDefault(
+        "default-frame-neutral",
+        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
+      );
     } else {
-      rawFrame = safeTokenizerSetting("default-frame-npc", "");
+      rawFrame = safeTokenizerDefault(
+        "default-frame-npc",
+        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
+      );
     }
   }
 
@@ -441,8 +447,9 @@ function getTokenizerFrameConfig(actor, token) {
     canUpload,
     frameEnabled,
     framePath,
-    tintFrame,
-    tintColor: tintColor ? String(tintColor) : null,
+    tintFrame: false,
+    tintColor: null,
+    classicFrame: true,
     ready: active && canUpload && frameEnabled && Boolean(framePath),
     version: String(module?.version ?? "")
   };
@@ -562,6 +569,34 @@ function calculateDrawRect(imageWidth, imageHeight, canvasSize, crop) {
       panY: bounded.panY
     }
   };
+}
+
+
+function drawCroppedSource(ctx, image, size, crop) {
+  const rect = calculateDrawRect(
+    image.naturalWidth,
+    image.naturalHeight,
+    size,
+    crop
+  );
+
+  // Real token mask: pixels outside the circular token boundary never reach
+  // the output canvas. This is not only a preview overlay.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.drawImage(
+    image,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height
+  );
+
+  ctx.restore();
+  return rect;
 }
 
 function hexToRgba(hex) {
@@ -1036,35 +1071,16 @@ class TokenCropperApp extends BaseApplication {
 
     const ctx = canvas.getContext("2d");
     const size = canvas.width;
-    const rect = calculateDrawRect(
-      this.sourceImage.naturalWidth,
-      this.sourceImage.naturalHeight,
+    ctx.clearRect(0, 0, size, size);
+
+    const clippedRect = drawCroppedSource(
+      ctx,
+      this.sourceImage,
       size,
       this.crop
     );
 
-    this.crop = rect.crop;
-
-    ctx.clearRect(0, 0, size, size);
-    ctx.fillStyle = "#05080b";
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.drawImage(
-      this.sourceImage,
-      rect.x,
-      rect.y,
-      rect.width,
-      rect.height
-    );
-
-    // Discord-like circular safe area.
-    ctx.save();
-    ctx.fillStyle = "rgba(0,0,0,.32)";
-    ctx.beginPath();
-    ctx.rect(0, 0, size, size);
-    ctx.arc(size / 2, size / 2, size * 0.44, 0, Math.PI * 2, true);
-    ctx.fill("evenodd");
-    ctx.restore();
+    this.crop = clippedRect.crop;
 
     if (this.frameImage) {
       drawFrame(
@@ -1105,20 +1121,14 @@ class TokenCropperApp extends BaseApplication {
       panY: this.crop.panY * (size / previewSize)
     };
 
-    const rect = calculateDrawRect(
-      this.sourceImage.naturalWidth,
-      this.sourceImage.naturalHeight,
+    ctx.clearRect(0, 0, size, size);
+
+    // Preserve transparent corners in the final WEBP.
+    drawCroppedSource(
+      ctx,
+      this.sourceImage,
       size,
       cropForOutput
-    );
-
-    ctx.clearRect(0, 0, size, size);
-    ctx.drawImage(
-      this.sourceImage,
-      rect.x,
-      rect.y,
-      rect.width,
-      rect.height
     );
 
     drawFrame(
