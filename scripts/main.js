@@ -5,6 +5,7 @@ const TOKENIZER_ID = "vtta-tokenizer";
 
 const FLAG_KEY = "state";
 const SCHEMA_VERSION = 3;
+const SOCKET_NAME = `module.${MODULE_ID}`;
 
 const SETTING_PLAYER_MANAGE = "playerCanManage";
 const SETTING_AUTO_CLOSE = "autoCloseAfterSwitch";
@@ -12,6 +13,7 @@ const SETTING_MAX_IMAGES = "maxImages";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "avif"]);
 const switchLocks = new Map();
+const socketRequests = new Map();
 
 let appInstance = null;
 let registeredWithHoloSuite = false;
@@ -22,6 +24,236 @@ function notify(type, message) {
 
 function isGM() {
   return game.user?.isGM === true;
+}
+
+
+function usersArray() {
+  if (Array.isArray(game.users)) return game.users;
+  return game.users?.contents ?? [];
+}
+
+function getUserById(userId) {
+  return game.users?.get?.(userId) ?? usersArray().find(user => user.id === userId) ?? null;
+}
+
+function getActiveGM() {
+  return game.users?.activeGM ?? usersArray().find(user => user.active && user.isGM) ?? null;
+}
+
+function canUseGmRelay() {
+  return !isGM() && Boolean(getActiveGM());
+}
+
+function actorOwnedByUser(actor, userId) {
+  if (!actor || !userId) return false;
+  if (game.user?.id === userId && canAccessActor(actor)) return true;
+
+  const user = getUserById(userId);
+  const ownerLevel =
+    globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER
+    ?? globalThis.CONST?.ENTITY_PERMISSIONS?.OWNER
+    ?? 3;
+
+  try {
+    if (user && typeof actor.testUserPermission === "function") {
+      return actor.testUserPermission(user, ownerLevel);
+    }
+  } catch {}
+
+  try {
+    if (user && typeof actor.getUserLevel === "function") {
+      return actor.getUserLevel(user) >= ownerLevel;
+    }
+  } catch {}
+
+  const level = actor.ownership?.[userId] ?? actor.permission?.[userId] ?? 0;
+  return Number(level) >= ownerLevel;
+}
+
+async function blobToBase64(blob) {
+  if (typeof FileReader !== "undefined") {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        const [, base64 = ""] = result.split(",", 2);
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("TW_BASE64_ENCODE_FAILED"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  if (blob?.arrayBuffer && typeof Buffer !== "undefined") {
+    const buffer = await blob.arrayBuffer();
+    return Buffer.from(buffer).toString("base64");
+  }
+
+  throw new Error("TW_BASE64_ENCODE_FAILED");
+}
+
+function base64ToUint8Array(base64) {
+  if (typeof atob === "function") {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  }
+
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(base64, "base64"));
+  }
+
+  throw new Error("TW_BASE64_DECODE_FAILED");
+}
+
+async function sendSocketRequest(action, payload) {
+  const activeGM = getActiveGM();
+  if (!activeGM || !game.socket?.emit) {
+    throw new Error("TW_NO_ACTIVE_GM");
+  }
+
+  const requestId = foundry.utils.randomID(16);
+
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socketRequests.delete(requestId);
+      reject(new Error("TW_GM_TIMEOUT"));
+    }, 15000);
+
+    socketRequests.set(requestId, {resolve, reject, timeout});
+
+    game.socket.emit(SOCKET_NAME, {
+      type: "request",
+      requestId,
+      targetUserId: activeGM.id,
+      requesterId: game.user?.id,
+      action,
+      payload
+    });
+  });
+}
+
+async function processSocketRequest(message) {
+  const {action, payload = {}, requesterId} = message ?? {};
+
+  switch (action) {
+    case "uploadRenderedToken": {
+      const actor = game.actors?.get?.(payload.actorId) ?? null;
+      if (!actor || !actorOwnedByUser(actor, requesterId)) {
+        throw new Error("TW_MANAGE_FORBIDDEN");
+      }
+
+      const bytes = base64ToUint8Array(String(payload.base64 || ""));
+      const file = new File([bytes], String(payload.filename || "token.webp"), {
+        type: String(payload.mimeType || "image/webp")
+      });
+
+      const FilePickerClass = foundry?.applications?.apps?.FilePicker?.implementation
+        ?? globalThis.FilePicker;
+
+      if (!FilePickerClass?.upload) throw new Error("TW_FILE_PICKER_UNAVAILABLE");
+
+      const directory = getUploadDirectory(actor);
+      const options = {};
+      if (directory.bucket) options.bucket = directory.bucket;
+
+      const result = await FilePickerClass.upload(
+        directory.source,
+        directory.current,
+        file,
+        options,
+        {notify: false}
+      );
+
+      const path = sanitizeSource(result?.path);
+      if (!path) throw new Error("TW_UPLOAD_FAILED");
+
+      return {path: cacheBust(path)};
+    }
+
+    case "switchTexture": {
+      const actor = game.actors?.get?.(payload.actorId) ?? null;
+      if (!actor || !actorOwnedByUser(actor, requesterId)) {
+        throw new Error("TW_MANAGE_FORBIDDEN");
+      }
+
+      const token = payload.tokenId ? canvas?.tokens?.get?.(payload.tokenId) : null;
+      if (!token || token.actor?.id !== actor.id) throw new Error("TW_TOKEN_NOT_FOUND");
+
+      const cleanSrc = sanitizeSource(payload.src);
+      if (!cleanSrc || !isSupportedSource(cleanSrc)) throw new Error("TW_BAD_IMAGE");
+
+      const gallery = getGallery(actor, {requireAccess: false});
+      if (!gallery.some(entry => entry.src === cleanSrc)) {
+        throw new Error("TW_IMAGE_NOT_REGISTERED");
+      }
+
+      await token.document.update({"texture.src": cleanSrc});
+
+      Hooks.callAll(`${MODULE_ID}.imageChanged`, {
+        actorId: actor.id,
+        tokenId: token.id,
+        src: cleanSrc
+      });
+
+      return {ok: true};
+    }
+
+    default:
+      throw new Error("TW_UNKNOWN_SOCKET_ACTION");
+  }
+}
+
+function registerSocketListener() {
+  if (!game.socket?.on) return;
+
+  game.socket.on(SOCKET_NAME, async message => {
+    if (!message || typeof message !== "object") return;
+
+    if (message.type === "response") {
+      if (message.targetUserId !== game.user?.id) return;
+
+      const pending = socketRequests.get(message.requestId);
+      if (!pending) return;
+
+      clearTimeout(pending.timeout);
+      socketRequests.delete(message.requestId);
+
+      if (message.ok) pending.resolve(message.result ?? {});
+      else pending.reject(new Error(message.error || "TW_GM_REQUEST_FAILED"));
+
+      return;
+    }
+
+    if (message.type !== "request") return;
+    if (!isGM()) return;
+    if (message.targetUserId && message.targetUserId !== game.user?.id) return;
+
+    try {
+      const result = await processSocketRequest(message);
+
+      game.socket.emit(SOCKET_NAME, {
+        type: "response",
+        requestId: message.requestId,
+        targetUserId: message.requesterId,
+        ok: true,
+        result
+      });
+    } catch (error) {
+      game.socket.emit(SOCKET_NAME, {
+        type: "response",
+        requestId: message.requestId,
+        targetUserId: message.requesterId,
+        ok: false,
+        error: error?.message || "TW_GM_REQUEST_FAILED"
+      });
+    }
+  });
 }
 
 function normalizeSlashes(value) {
@@ -283,7 +515,25 @@ function actorTokensOnCurrentScene(actor) {
 
 function currentControlledOwnedToken() {
   return (canvas?.tokens?.controlled ?? [])
-    .find(token => canAccessActor(token.actor) && canModifyTokenImage(token)) ?? null;
+    .find(token => canAccessActor(token.actor)) ?? null;
+}
+
+function preferredSceneTokenForUser() {
+  const controlled = currentControlledOwnedToken();
+  if (controlled) return controlled;
+
+  const character = characterActor();
+  if (character) {
+    const token = actorTokensOnCurrentScene(character).find(item => canAccessActor(item.actor));
+    if (token) return token;
+  }
+
+  for (const actor of ownedActorsWithTokens()) {
+    const token = actorTokensOnCurrentScene(actor).find(item => canAccessActor(item.actor));
+    if (token) return token;
+  }
+
+  return null;
 }
 
 function characterActor() {
@@ -298,7 +548,7 @@ function ownedActorsWithTokens() {
   for (const token of getAllSceneTokens()) {
     const actor = token.actor;
     if (!actor || seen.has(actor.id)) continue;
-    if (!canAccessActor(actor) || !canModifyTokenImage(token)) continue;
+    if (!canAccessActor(actor)) continue;
     seen.add(actor.id);
     actors.push(actor);
   }
@@ -311,7 +561,7 @@ function resolveDefaultActor() {
   if (controlled?.actor) return controlled.actor;
 
   const character = characterActor();
-  if (character && actorTokensOnCurrentScene(character).some(canModifyTokenImage)) {
+  if (character && actorTokensOnCurrentScene(character).some(token => canAccessActor(token.actor))) {
     return character;
   }
 
@@ -355,15 +605,14 @@ function resolveToken(actor, preferredTokenId = "") {
     const token = canvas?.tokens?.get?.(preferredTokenId);
     if (
       token?.actor?.id === actor.id &&
-      canAccessActor(token.actor) &&
-      canModifyTokenImage(token)
+      canAccessActor(token.actor)
     ) return token;
   }
 
   const controlled = currentControlledOwnedToken();
   if (controlled?.actor?.id === actor.id) return controlled;
 
-  const tokens = actorTokensOnCurrentScene(actor).filter(canModifyTokenImage);
+  const tokens = actorTokensOnCurrentScene(actor).filter(token => canAccessActor(token.actor));
   if (tokens.length === 1) return tokens[0];
 
   return tokens[0] ?? null;
@@ -412,30 +661,31 @@ function safeTokenizerDefault(key, fallback = null) {
 function getTokenizerFrameConfig(actor, token) {
   const module = game.modules.get(TOKENIZER_ID);
   const active = Boolean(module?.active);
-  const canUpload = game.user?.can?.("FILES_UPLOAD") === true;
+  const localUpload = game.user?.can?.("FILES_UPLOAD") === true;
+  const relayUpload = canUseGmRelay();
+  const canUpload = localUpload || relayUpload;
   const frameEnabled = active && safeTokenizerSetting("add-frame-default", false) === true;
   const tokenType = getActorTokenType(actor);
   const disposition = Number(token?.document?.disposition ?? actor?.prototypeToken?.disposition ?? 0);
 
-  // Wardrobe intentionally uses Tokenizer's CLASSIC built-in frames, not frame-tint mode.
-  // For LANCER pilot/mech this resolves to the standard brown PC ring.
+  // Wardrobe always uses the classic configured Tokenizer frame, never the tint pipeline.
   let rawFrame = "";
 
   if (active && frameEnabled) {
     if (tokenType === "pc") {
-      rawFrame = safeTokenizerDefault(
+      rawFrame = safeTokenizerSetting(
         "default-frame-pc",
-        "[data] modules/vtta-tokenizer/img/default-frame-pc.png"
+        safeTokenizerDefault("default-frame-pc", "[data] modules/vtta-tokenizer/img/default-frame-pc.png")
       );
     } else if (disposition === 0 || disposition === 1) {
-      rawFrame = safeTokenizerDefault(
+      rawFrame = safeTokenizerSetting(
         "default-frame-neutral",
-        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
+        safeTokenizerDefault("default-frame-neutral", "[data] modules/vtta-tokenizer/img/default-frame-npc.png")
       );
     } else {
-      rawFrame = safeTokenizerDefault(
+      rawFrame = safeTokenizerSetting(
         "default-frame-npc",
-        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
+        safeTokenizerDefault("default-frame-npc", "[data] modules/vtta-tokenizer/img/default-frame-npc.png")
       );
     }
   }
@@ -444,6 +694,8 @@ function getTokenizerFrameConfig(actor, token) {
 
   return {
     active,
+    localUpload,
+    relayUpload,
     canUpload,
     frameEnabled,
     framePath,
@@ -676,7 +928,24 @@ function getUploadDirectory(actor) {
 }
 
 async function uploadRenderedToken(actor, blob, entryId) {
+  const filename = `${slugify(actor.name)}.Wardrobe-${entryId}-${Date.now()}.webp`;
+
   if (!game.user?.can?.("FILES_UPLOAD")) {
+    if (canUseGmRelay()) {
+      const base64 = await blobToBase64(blob);
+      const result = await sendSocketRequest("uploadRenderedToken", {
+        actorId: actor.id,
+        entryId,
+        filename,
+        mimeType: "image/webp",
+        base64
+      });
+
+      const path = sanitizeSource(result?.path);
+      if (!path) throw new Error("TW_UPLOAD_FAILED");
+      return path;
+    }
+
     throw new Error("TW_UPLOAD_PERMISSION");
   }
 
@@ -688,7 +957,6 @@ async function uploadRenderedToken(actor, blob, entryId) {
   }
 
   const directory = getUploadDirectory(actor);
-  const filename = `${slugify(actor.name)}.Wardrobe-${entryId}-${Date.now()}.webp`;
   const file = new File([blob], filename, {type: "image/webp"});
 
   const options = {};
@@ -735,7 +1003,9 @@ async function validateSwitchRequest({actor, token, src}) {
 
   const cleanSrc = sanitizeSource(src);
   if (!cleanSrc || !isSupportedSource(cleanSrc)) throw new Error("TW_BAD_IMAGE");
-  if (!canModifyTokenImage(token, cleanSrc)) throw new Error("TW_TOKEN_NOT_MODIFIABLE");
+
+  const canDirectlyUpdate = canModifyTokenImage(token, cleanSrc);
+  if (!canDirectlyUpdate && !canUseGmRelay()) throw new Error("TW_TOKEN_NOT_MODIFIABLE");
 
   const gallery = getGallery(actor);
   if (!gallery.some(entry => entry.src === cleanSrc)) {
@@ -762,6 +1032,24 @@ async function switchImage({actorId, tokenId, src}) {
     throw new Error("TW_IMAGE_LOAD_FAILED");
   }
 
+  const canDirectlyUpdate = canModifyTokenImage(token, cleanSrc);
+
+  if (!canDirectlyUpdate && canUseGmRelay()) {
+    await sendSocketRequest("switchTexture", {
+      actorId: actor.id,
+      tokenId: token.id,
+      src: cleanSrc
+    });
+
+    Hooks.callAll(`${MODULE_ID}.imageChanged`, {
+      actorId: actor.id,
+      tokenId: token.id,
+      src: cleanSrc
+    });
+
+    return token;
+  }
+
   return withTokenLock(token.id, async () => {
     if (!canAccessActor(token.actor) || !canModifyTokenImage(token, cleanSrc)) {
       throw new Error("TW_PERMISSION_CHANGED");
@@ -769,7 +1057,7 @@ async function switchImage({actorId, tokenId, src}) {
 
     if (token.document.texture?.src === cleanSrc) return token;
 
-    // Safety invariant: this remains the ONLY TokenDocument mutation in the module.
+    // Safety invariant: this remains the ONLY direct local TokenDocument mutation in the module.
     await token.document.update({"texture.src": cleanSrc});
 
     Hooks.callAll(`${MODULE_ID}.imageChanged`, {
@@ -880,9 +1168,12 @@ async function askText({title, label, value = ""}) {
 function processingErrorMessage(error) {
   switch (error?.message) {
     case "TW_SOURCE_LOAD_FAILED":
-      return "Não consegui abrir essa imagem. Use o link direto da imagem; se o site bloquear CORS, configure o proxy do Tokenizer.";
+      return "Não consegui abrir essa imagem. Use o link direto do arquivo (não a página do pin/post); se o site bloquear CORS, configure o proxy do Tokenizer.";
     case "TW_UPLOAD_PERMISSION":
-      return "O Tokenizer precisa de permissão FILES_UPLOAD para salvar a imagem pronta.";
+      return "Sem upload local e sem GM ativo para relay.";
+    case "TW_NO_ACTIVE_GM":
+    case "TW_GM_TIMEOUT":
+      return "Nenhum GM ativo respondeu ao relay. Entre com um GM online e tente novamente.";
     case "TW_UPLOAD_DIRECTORY_MISSING":
       return "O diretório de upload do Tokenizer não está configurado.";
     case "TW_FRAME_NOT_READY":
@@ -1211,7 +1502,7 @@ function openCropper({actor, token, source, entry = null}) {
   }
 
   if (!frameConfig.canUpload) {
-    notify("error", "Você precisa da permissão FILES_UPLOAD para salvar a imagem pronta.");
+    notify("error", "É preciso FILES_UPLOAD local ou um GM ativo para relay.");
     return null;
   }
 
@@ -1247,6 +1538,8 @@ class TokenWardrobeApp extends BaseApplication {
     actions: {
       prepareUrl: TokenWardrobeApp.#prepareUrl,
       pickFile: TokenWardrobeApp.#pickFile,
+      useSelectedToken: TokenWardrobeApp.#useSelectedToken,
+      useMyToken: TokenWardrobeApp.#useMyToken,
       switchImage: TokenWardrobeApp.#switchImage,
       editCrop: TokenWardrobeApp.#editCrop,
       renameImage: TokenWardrobeApp.#renameImage,
@@ -1349,6 +1642,10 @@ class TokenWardrobeApp extends BaseApplication {
       tokenizerStatus,
       tokenizerClass,
       tokenizerReady: frame.ready,
+      relayUpload: frame.relayUpload,
+      localUpload: frame.localUpload,
+      canBrowseFiles: isGM(),
+      canPickCurrentToken: Boolean(preferredSceneTokenForUser()),
       canEnableFrame: isGM() && frame.active && !frame.frameEnabled
     };
   }
@@ -1421,6 +1718,31 @@ class TokenWardrobeApp extends BaseApplication {
       console.error(`${MODULE_TITLE} | File Picker failed`, error);
       notify("error", "Não foi possível abrir o seletor de arquivos.");
     }
+  }
+
+
+  static async #useSelectedToken() {
+    const token = currentControlledOwnedToken();
+    if (!token?.actor) {
+      notify("warn", "Selecione um token seu na mesa primeiro.");
+      return;
+    }
+
+    this.actorId = token.actor.id;
+    this.tokenId = token.id;
+    this.render({force: true});
+  }
+
+  static async #useMyToken() {
+    const token = preferredSceneTokenForUser();
+    if (!token?.actor) {
+      notify("warn", "Não encontrei um token seu na cena atual.");
+      return;
+    }
+
+    this.actorId = token.actor.id;
+    this.tokenId = token.id;
+    this.render({force: true});
   }
 
   static async #switchImage(event, target) {
@@ -1645,6 +1967,7 @@ Hooks.once("init", () => {
   });
 
   exposeApi();
+  registerSocketListener();
 
   Hooks.on("holosuite-core.apiReady", api => {
     registerWithHoloSuite(api);

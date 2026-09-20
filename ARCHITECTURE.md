@@ -1,4 +1,4 @@
-# Arquitetura v0.4.1
+# Arquitetura v0.5.0
 
 ## Mudança principal
 
@@ -83,3 +83,32 @@ restore()
 
 Portanto os cantos ficam transparentes antes de a moldura ser desenhada.
 O WEBP exportado contém o recorte, não apenas uma indicação visual de área segura.
+
+
+## GM Relay
+
+A v0.5.0 introduz relay leve via `game.socket` no canal do módulo.
+
+### Casos de uso
+
+1. Player **sem `FILES_UPLOAD`** salva a imagem recortada:
+   - cliente do player renderiza o canvas;
+   - converte o blob para base64;
+   - envia pedido ao GM ativo;
+   - GM reconstroi o arquivo e usa `FilePicker.upload()`;
+   - retorna o path final.
+
+2. Player **sem permissão direta para atualizar o TokenDocument**:
+   - player seleciona uma arte da galeria;
+   - envia pedido ao GM ativo;
+   - GM valida ownership do Actor do requester;
+   - GM executa `token.document.update({"texture.src": cleanSrc})`.
+
+### Segurança
+
+O relay só atende se o requester for OWNER do Actor correspondente.
+Mesmo via relay, o módulo continua limitado a:
+- upload do arquivo final;
+- update de `texture.src` do token escolhido.
+
+Não há atualização de Actor, Prototype Token, HP, posição ou automações.

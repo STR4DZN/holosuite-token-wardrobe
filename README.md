@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.4.1
+# HoloSuite Token Wardrobe v0.5.0
 
 ## Fluxo atual
 
@@ -107,3 +107,24 @@ Actors `npc` e `deployable` permanecem no caminho NPC.
 - preview usa fundo quadriculado para deixar a transparência visível.
 
 A escolha do frame clássico usa o valor **default registrado pelo Tokenizer**, não o frame tintado ativo no mundo.
+
+
+## Correções v0.5.0
+
+- players podem colar URL mesmo sem acesso aos arquivos do Foundry;
+- upload final pode ser feito por **GM relay** quando o player não possui `FILES_UPLOAD`;
+- troca de `texture.src` também pode ser feita por **GM relay** quando o token da cena não é modificável diretamente pelo player;
+- botão **Token selecionado** para pegar o token atualmente marcado na mesa;
+- botão **Meu token na cena** para focar automaticamente o primeiro token do player na cena atual;
+- botão **Escolher imagem do Foundry** agora fica apenas para GM;
+- o frame do Wardrobe usa o **frame configurado em `default-frame-pc` / `default-frame-neutral` / `default-frame-npc`**, ignorando o pipeline de tint.
+
+### Importante sobre Discord / Pinterest
+
+O app aceita **URL direta da imagem**.  
+Exemplos que tendem a funcionar:
+- `cdn.discordapp.com/...`
+- `media.discordapp.net/...`
+- `i.pinimg.com/...`
+
+Links de página, como um pin do Pinterest ou post, não são arquivo de imagem direto e podem falhar.

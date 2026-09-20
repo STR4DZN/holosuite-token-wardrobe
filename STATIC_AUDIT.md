@@ -1,59 +1,53 @@
-# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.4.1
+# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.5.0
 
-## Bugs reproduzidos pela print
+## Objetivos desta revisão
 
-1. A moldura cinza/pedra era proveniente do caminho de frame tintado.
-2. A imagem era desenhada em todo o canvas quadrado; a área circular era apenas uma indicação visual.
+1. Players devem poder colar URL sem acesso aos arquivos do Foundry.
+2. Players devem poder trocar a imagem do próprio token na cena mesmo sem permissão direta de update no TokenDocument.
+3. O app precisava voltar a ter um atalho para focar o token atual do player na mesa.
+4. A borda não deve usar o pipeline grey/tinted do Tokenizer.
+5. O recorte circular real da v0.4.1 precisa permanecer intacto.
 
-## Correções
+## Correções aplicadas
 
-PASS — Wardrobe ignora frame-tint.
-PASS — LANCER `pilot` e `mech` usam Tokenizer classic PC frame.
-PASS — frame PC é lido do valor DEFAULT registrado pelo Tokenizer.
-PASS — fallback é `modules/vtta-tokenizer/img/default-frame-pc.png`.
-PASS — preview usa recorte circular real.
-PASS — exportação usa o mesmo recorte circular real.
-PASS — `clip()` ocorre antes de `drawImage()`.
-PASS — círculo de recorte usa centro `(size/2,size/2)` e raio `size/2`.
-PASS — canvas final não recebe fundo opaco antes da exportação.
-PASS — cantos externos permanecem transparentes no WEBP.
-PASS — frame é desenhado somente depois da imagem recortada.
-PASS — pan/zoom continuam sendo respeitados antes do clip.
+PASS — GM relay via `game.socket` para upload final.
+PASS — GM relay via `game.socket` para `texture.src`.
+PASS — validação de ownership do Actor no GM antes de atender relay.
+PASS — players sem `FILES_UPLOAD` continuam podendo preparar URL.
+PASS — botão de browse do Foundry fica oculto para players.
+PASS — botão `Token selecionado`.
+PASS — botão `Meu token na cena`.
+PASS — seleção/descoberta de token não exige mais permissão direta de update.
+PASS — `validateSwitchRequest()` aceita relay GM quando o player não pode modificar o token diretamente.
+PASS — `getTokenizerFrameConfig()` usa `default-frame-pc` / `neutral` / `npc` configurados no mundo.
+PASS — `frame-tint` continua ignorado no Wardrobe.
+PASS — recorte circular real permanece.
+PASS — canto externo continua transparente.
+PASS — preview e exportação continuam usando a mesma função de crop.
 
-## Regressão
+## Mocks executados
 
-PASS — Node `--check`.
-PASS — crop horizontal.
-PASS — crop vertical.
-PASS — zoom 100%–600%.
-PASS — pan limitado.
-PASS — URL http/https.
-PASS — traversal bloqueado.
-PASS — diretório de upload Tokenizer.
-PASS — migração de schema anterior.
-PASS — ownership de Actor.
-PASS — ownership de Token.
-PASS — HoloSuite `playerVisible`.
-PASS — scroll responsivo permanece.
-PASS — nenhuma chamada `autoToken()`.
+PASS — frame clássico configurado: `custom/brown-ring.png`.
+PASS — readiness via GM relay sem `FILES_UPLOAD`.
+PASS — upload via relay.
+PASS — switch via relay.
+PASS — actor default resolvido mesmo sem `token.document.canUserModify()`.
+PASS — contexto indica `canBrowseFiles=false` para player.
+PASS — contexto indica `relayUpload=true`.
+PASS — contexto indica `canPickCurrentToken=true`.
+PASS — clip circular real.
+PASS — registro HoloSuite playerVisible.
+
+## Invariantes de segurança
+
 PASS — nenhuma chamada `Actor.update()`.
 PASS — nenhuma chamada `prototypeToken.update()`.
-PASS — exatamente um `token.document.update()`.
-PASS — payload exatamente `{"texture.src": cleanSrc}`.
+PASS — exatamente duas chamadas `token.document.update()` no código:
+- caminho local direto;
+- caminho GM relay.
+PASS — em ambos os casos o payload é exatamente `{"texture.src": cleanSrc}`.
 
-## Resultado dos mocks
+## Observação sobre Discord / Pinterest
 
-- `circularClip: PASS`
-- `classicBrownFrame: PASS`
-- `cropMath: PASS`
-- `frameConfig: PASS`
-- `uploadDirectory: PASS`
-- `migration: PASS`
-
-## Teste real recomendado
-
-1. Colar a mesma URL da print.
-2. Arrastar/zoom no editor.
-3. Confirmar que os quatro cantos mostram transparência no preview.
-4. Salvar.
-5. Confirmar no Canvas que só o círculo + moldura marrom aparecem.
+O módulo aceita URL direta do arquivo de imagem.
+Links de página/post/pin ainda podem falhar; para esses casos o usuário deve usar o endereço direto do arquivo ou proxy do Tokenizer.

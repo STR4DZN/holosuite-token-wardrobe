@@ -43,6 +43,17 @@
         </label>
       {{/if}}
 
+      <div class="twl-token-quickbar">
+        <button type="button" data-action="useSelectedToken">
+          <i class="fa-solid fa-crosshairs"></i>
+          Token selecionado
+        </button>
+        <button type="button" data-action="useMyToken" {{#unless canPickCurrentToken}}disabled{{/unless}}>
+          <i class="fa-solid fa-user"></i>
+          Meu token na cena
+        </button>
+      </div>
+
       {{#unless hasToken}}
         <section class="twl-empty compact">
           <i class="fa-solid fa-location-crosshairs"></i>
@@ -78,13 +89,19 @@
               </button>
             </div>
 
-            <button class="twl-file-button" type="button" data-action="pickFile" {{#unless tokenizerReady}}disabled{{/unless}}>
-              <i class="fa-solid fa-folder-open"></i>
-              Escolher imagem do Foundry
-            </button>
+            {{#if canBrowseFiles}}
+              <button class="twl-file-button" type="button" data-action="pickFile" {{#unless tokenizerReady}}disabled{{/unless}}>
+                <i class="fa-solid fa-folder-open"></i>
+                Escolher imagem do Foundry
+              </button>
+            {{/if}}
 
             {{#unless tokenizerReady}}
-              <small>Ative o Tokenizer, sua borda padrão e a permissão de upload.</small>
+              <small>Ative o Tokenizer, sua borda padrão e tenha FILES_UPLOAD local ou um GM ativo para relay.</small>
+            {{else}}
+              {{#if relayUpload}}
+                <small>Upload via GM relay ativo. Players podem usar URL sem acesso aos arquivos do Foundry.</small>
+              {{/if}}
             {{/unless}}
           </section>
         {{/if}}
