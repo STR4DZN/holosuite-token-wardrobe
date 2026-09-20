@@ -1,0 +1,115 @@
+
+<div class="twl-shell">
+  <header class="twl-header">
+    <div class="twl-heading">
+      <span class="twl-kicker">HOLOSUITE // TOKEN WARDROBE</span>
+      <h1>Aparências</h1>
+      {{#if actor}}<p>{{actor.name}}</p>{{/if}}
+    </div>
+
+    {{#if currentSrc}}
+      <img class="twl-current-preview" src="{{currentSrc}}" alt="Aparência atual" decoding="async">
+    {{/if}}
+  </header>
+
+  {{#unless hasActor}}
+    <section class="twl-empty">
+      <i class="fa-solid fa-user-slash"></i>
+      <h2>Nenhum personagem disponível</h2>
+      <p>Defina seu Character no Foundry ou tenha ownership de um Actor presente na cena.</p>
+    </section>
+  {{else}}
+
+    {{#if multipleActors}}
+      <label class="twl-field">
+        <span>Personagem</span>
+        <select data-role="actor-select">
+          {{#each actors}}
+            <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+          {{/each}}
+        </select>
+      </label>
+    {{/if}}
+
+    {{#if multipleTokens}}
+      <label class="twl-field">
+        <span>Token na cena</span>
+        <select data-role="token-select">
+          {{#each tokens}}
+            <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
+          {{/each}}
+        </select>
+      </label>
+    {{/if}}
+
+    {{#unless hasToken}}
+      <section class="twl-empty">
+        <i class="fa-solid fa-location-crosshairs"></i>
+        <h2>Token não encontrado nesta cena</h2>
+        <p>O personagem está disponível, mas não há um token modificável correspondente na cena atual.</p>
+      </section>
+    {{else}}
+
+      {{#if fixedRingSubject}}
+        <div class="twl-warning">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Este token usa uma Subject Texture fixa no Dynamic Token Ring. A imagem base será alterada, mas o ring pode continuar mostrando a Subject Texture configurada pelo mestre.
+        </div>
+      {{/if}}
+
+      <section class="twl-controls">
+        <label class="twl-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input data-role="search" type="search" placeholder="Buscar aparência...">
+        </label>
+        <div class="twl-stats">
+          <span>{{totalCount}} artes</span>
+          <span>{{favoritesCount}} favoritas</span>
+        </div>
+      </section>
+
+      {{#if gallery.length}}
+        <section class="twl-grid">
+          {{#each gallery}}
+            <article class="twl-card {{#if active}}is-active{{/if}} {{#if favorite}}is-favorite{{/if}}" data-search="{{searchText}}">
+              <button class="twl-image-button" type="button" data-action="switchImage" data-src="{{src}}" title="{{name}}">
+                <img src="{{src}}" alt="{{name}}" loading="lazy" decoding="async">
+                {{#if active}}<span class="twl-active-badge">ATUAL</span>{{/if}}
+                {{#if favorite}}<span class="twl-star"><i class="fa-solid fa-star"></i></span>{{/if}}
+              </button>
+
+              <div class="twl-card-footer">
+                <strong title="{{name}}">{{name}}</strong>
+
+                {{#if ../canManage}}
+                  <div class="twl-card-actions">
+                    <button type="button" data-action="toggleFavorite" data-id="{{id}}" title="Favoritar"><i class="fa-solid fa-star"></i></button>
+                    <button type="button" data-action="renameImage" data-id="{{id}}" title="Renomear"><i class="fa-solid fa-pen"></i></button>
+                    <button type="button" data-action="moveUp" data-id="{{id}}" title="Mover para cima"><i class="fa-solid fa-arrow-up"></i></button>
+                    <button type="button" data-action="moveDown" data-id="{{id}}" title="Mover para baixo"><i class="fa-solid fa-arrow-down"></i></button>
+                    <button type="button" data-action="removeImage" data-id="{{id}}" title="Remover"><i class="fa-solid fa-trash"></i></button>
+                  </div>
+                {{/if}}
+              </div>
+            </article>
+          {{/each}}
+        </section>
+      {{else}}
+        <section class="twl-empty compact">
+          <i class="fa-regular fa-images"></i>
+          <h2>Nenhuma aparência encontrada</h2>
+          <p>Adicione imagens ou limpe a busca.</p>
+        </section>
+      {{/if}}
+
+      {{#if canManage}}
+        <footer class="twl-toolbar">
+          <button type="button" data-action="addCurrent"><i class="fa-solid fa-camera"></i> Arte atual</button>
+          <button type="button" data-action="pickFile"><i class="fa-solid fa-image"></i> Escolher arquivo</button>
+          <button type="button" data-action="importFolder"><i class="fa-solid fa-folder-open"></i> Importar pasta</button>
+        </footer>
+      {{/if}}
+
+    {{/unless}}
+  {{/unless}}
+</div>

@@ -1,0 +1,14 @@
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Package archives
+*.zip
+*.tar.gz
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
