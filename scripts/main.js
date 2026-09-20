@@ -4,8 +4,8 @@ const MODULE_TITLE = "HoloSuite Token Wardrobe";
 const TOKENIZER_ID = "vtta-tokenizer";
 
 const FLAG_KEY = "state";
-const SCHEMA_VERSION = 3;
-const SOCKET_NAME = `module.${MODULE_ID}`;
+const SCHEMA_VERSION = 4;
+const DEFAULT_FRAME_COLOR = "#8B5A2B";
 
 const SETTING_PLAYER_MANAGE = "playerCanManage";
 const SETTING_AUTO_CLOSE = "autoCloseAfterSwitch";
@@ -13,10 +13,10 @@ const SETTING_MAX_IMAGES = "maxImages";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "avif"]);
 const switchLocks = new Map();
-const socketRequests = new Map();
 
 let appInstance = null;
 let registeredWithHoloSuite = false;
+let socketlibSocket = null;
 
 function notify(type, message) {
   ui.notifications?.[type]?.(message);
@@ -41,7 +41,7 @@ function getActiveGM() {
 }
 
 function canUseGmRelay() {
-  return !isGM() && Boolean(getActiveGM());
+  return !isGM() && Boolean(getActiveGM()) && Boolean(socketlibSocket);
 }
 
 function actorOwnedByUser(actor, userId) {
@@ -112,53 +112,194 @@ function base64ToUint8Array(base64) {
 }
 
 async function sendSocketRequest(action, payload) {
-  const activeGM = getActiveGM();
-  if (!activeGM || !game.socket?.emit) {
+  if (isGM()) {
+    return await processSocketRequest({
+      action,
+      payload,
+      requesterId: game.user?.id
+    });
+  }
+
+  if (!socketlibSocket || !getActiveGM()) {
     throw new Error("TW_NO_ACTIVE_GM");
   }
 
-  const requestId = foundry.utils.randomID(16);
+  return await socketlibSocket.executeAsGM(
+    "gmRequest",
+    action,
+    payload
+  );
+}
 
-  return await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      socketRequests.delete(requestId);
-      reject(new Error("TW_GM_TIMEOUT"));
-    }, 15000);
+async function handleSocketlibGmRequest(action, payload) {
+  const requesterId = this?.socketdata?.userId;
 
-    socketRequests.set(requestId, {resolve, reject, timeout});
+  if (!requesterId) {
+    throw new Error("TW_AUTH_UNAUTHENTICATED");
+  }
 
-    game.socket.emit(SOCKET_NAME, {
-      type: "request",
-      requestId,
-      targetUserId: activeGM.id,
-      requesterId: game.user?.id,
-      action,
-      payload
-    });
+  return await processSocketRequest({
+    action,
+    payload,
+    requesterId
   });
 }
+
+function registerSocketlibBridge() {
+  if (socketlibSocket) return socketlibSocket;
+
+  const api = globalThis.socketlib;
+  if (!api?.registerModule) return null;
+
+  socketlibSocket = api.registerModule(MODULE_ID);
+  socketlibSocket.register("gmRequest", handleSocketlibGmRequest);
+
+  return socketlibSocket;
+}
+
+async function requestAppearanceSave({
+  actor,
+  entryId,
+  name,
+  source,
+  crop,
+  frameColor,
+  blob
+}) {
+  if (!actor || !canAccessActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
+
+  const filename = `${slugify(actor.name)}.Wardrobe-${entryId}-${Date.now()}.webp`;
+  const base64 = await blobToBase64(blob);
+
+  return await sendSocketRequest(
+    "saveAppearance",
+    {
+      actorId: actor.id,
+      entryId,
+      name,
+      source,
+      crop: normalizeCrop(crop),
+      frameColor: normalizeHexColor(frameColor),
+      filename,
+      mimeType: "image/webp",
+      base64
+    }
+  );
+}
+
+async function relayTokenizerUpload({
+  actor,
+  kind,
+  fileName,
+  blob
+}) {
+  if (!actor || !canAccessActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
+  if (!["token", "avatar"].includes(kind)) throw new Error("TW_BAD_UPLOAD_KIND");
+
+  const base64 = await blobToBase64(blob);
+
+  return await sendSocketRequest(
+    "tokenizerUpload",
+    {
+      actorId: actor.id,
+      kind,
+      fileName: String(fileName || "").slice(0, 160),
+      mimeType: String(blob?.type || "image/webp"),
+      base64
+    }
+  );
+}
+
+
 
 async function processSocketRequest(message) {
   const {action, payload = {}, requesterId} = message ?? {};
 
   switch (action) {
-    case "uploadRenderedToken": {
+    case "saveAppearance": {
       const actor = game.actors?.get?.(payload.actorId) ?? null;
       if (!actor || !actorOwnedByUser(actor, requesterId)) {
         throw new Error("TW_MANAGE_FORBIDDEN");
       }
 
-      const bytes = base64ToUint8Array(String(payload.base64 || ""));
-      const file = new File([bytes], String(payload.filename || "token.webp"), {
+      const source = sanitizeSource(payload.source);
+      if (!source || !isSupportedSource(source)) throw new Error("TW_BAD_IMAGE");
+
+      const base64 = String(payload.base64 || "");
+      if (!base64 || base64.length > 28_000_000) throw new Error("TW_UPLOAD_TOO_LARGE");
+
+      const bytes = base64ToUint8Array(base64);
+      const safeName = sanitizeUploadFileName(payload.filename, "token.webp");
+      const file = new File([bytes], safeName, {
         type: String(payload.mimeType || "image/webp")
       });
 
-      const FilePickerClass = foundry?.applications?.apps?.FilePicker?.implementation
-        ?? globalThis.FilePicker;
-
+      const FilePickerClass = getFoundryFilePickerClass();
       if (!FilePickerClass?.upload) throw new Error("TW_FILE_PICKER_UNAVAILABLE");
 
       const directory = getUploadDirectory(actor);
+      await ensureDirectoryExists(directory);
+
+      const options = {};
+      if (directory.bucket) options.bucket = directory.bucket;
+
+      const result = await FilePickerClass.upload(
+        directory.source,
+        directory.current,
+        file,
+        options,
+        {notify: false}
+      );
+
+      const uploadedPath = sanitizeSource(result?.path);
+      if (!uploadedPath) throw new Error("TW_UPLOAD_FAILED");
+
+      const finalPath = cacheBust(uploadedPath);
+
+      await upsertProcessedEntry(actor, {
+        entryId: String(payload.entryId || foundry.utils.randomID(16)),
+        name: String(payload.name || "Nova aparência").slice(0, 80),
+        source,
+        src: finalPath,
+        crop: normalizeCrop(payload.crop),
+        frameColor: normalizeHexColor(payload.frameColor)
+      });
+
+      return {
+        saved: true,
+        path: finalPath
+      };
+    }
+
+    case "tokenizerUpload": {
+      const actor = game.actors?.get?.(payload.actorId) ?? null;
+      if (!actor || !actorOwnedByUser(actor, requesterId)) {
+        throw new Error("TW_MANAGE_FORBIDDEN");
+      }
+
+      if (!["token", "avatar"].includes(payload.kind)) {
+        throw new Error("TW_BAD_UPLOAD_KIND");
+      }
+
+      const base64 = String(payload.base64 || "");
+      if (!base64 || base64.length > 28_000_000) throw new Error("TW_UPLOAD_TOO_LARGE");
+
+      const bytes = base64ToUint8Array(base64);
+      const safeName = sanitizeUploadFileName(
+        payload.fileName,
+        payload.kind === "avatar" ? "Avatar.webp" : "Token.webp"
+      );
+
+      const file = new File([bytes], safeName, {
+        type: String(payload.mimeType || "image/webp")
+      });
+
+      const FilePickerClass = getFoundryFilePickerClass();
+      if (!FilePickerClass?.upload) throw new Error("TW_FILE_PICKER_UNAVAILABLE");
+
+      const directory = getUploadDirectory(actor);
+      await ensureDirectoryExists(directory);
+
       const options = {};
       if (directory.bucket) options.bucket = directory.bucket;
 
@@ -173,7 +314,36 @@ async function processSocketRequest(message) {
       const path = sanitizeSource(result?.path);
       if (!path) throw new Error("TW_UPLOAD_FAILED");
 
-      return {path: cacheBust(path)};
+      return {path};
+    }
+
+    case "saveGalleryState": {
+      const actor = game.actors?.get?.(payload.actorId) ?? null;
+      if (!actor || !actorOwnedByUser(actor, requesterId)) {
+        throw new Error("TW_MANAGE_FORBIDDEN");
+      }
+
+      const rawGallery = Array.isArray(payload?.state?.gallery)
+        ? payload.state.gallery
+        : [];
+
+      const maxImages = Math.min(
+        100,
+        Math.max(1, Number(game.settings.get(MODULE_ID, SETTING_MAX_IMAGES) || 60))
+      );
+
+      const gallery = rawGallery
+        .map((entry, index) => normalizeEntry(entry, index))
+        .filter(Boolean)
+        .slice(0, maxImages)
+        .map((entry, index) => ({...entry, order: index}));
+
+      await actor.setFlag(MODULE_ID, FLAG_KEY, {
+        schemaVersion: SCHEMA_VERSION,
+        gallery
+      });
+
+      return {saved: true};
     }
 
     case "switchTexture": {
@@ -207,53 +377,6 @@ async function processSocketRequest(message) {
     default:
       throw new Error("TW_UNKNOWN_SOCKET_ACTION");
   }
-}
-
-function registerSocketListener() {
-  if (!game.socket?.on) return;
-
-  game.socket.on(SOCKET_NAME, async message => {
-    if (!message || typeof message !== "object") return;
-
-    if (message.type === "response") {
-      if (message.targetUserId !== game.user?.id) return;
-
-      const pending = socketRequests.get(message.requestId);
-      if (!pending) return;
-
-      clearTimeout(pending.timeout);
-      socketRequests.delete(message.requestId);
-
-      if (message.ok) pending.resolve(message.result ?? {});
-      else pending.reject(new Error(message.error || "TW_GM_REQUEST_FAILED"));
-
-      return;
-    }
-
-    if (message.type !== "request") return;
-    if (!isGM()) return;
-    if (message.targetUserId && message.targetUserId !== game.user?.id) return;
-
-    try {
-      const result = await processSocketRequest(message);
-
-      game.socket.emit(SOCKET_NAME, {
-        type: "response",
-        requestId: message.requestId,
-        targetUserId: message.requesterId,
-        ok: true,
-        result
-      });
-    } catch (error) {
-      game.socket.emit(SOCKET_NAME, {
-        type: "response",
-        requestId: message.requestId,
-        targetUserId: message.requesterId,
-        ok: false,
-        error: error?.message || "TW_GM_REQUEST_FAILED"
-      });
-    }
-  });
 }
 
 function normalizeSlashes(value) {
@@ -305,6 +428,18 @@ function stripDirectoryPrefix(value) {
   return match ? match[2] : raw;
 }
 
+function normalizeDirectoryPath(value) {
+  const raw = normalizeSlashes(value).trim().replace(/^\/+|\/+$/gu, "");
+  if (!raw) return "";
+
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.some(part => part === "." || part === "..")) {
+    throw new Error("TW_BAD_UPLOAD_DIRECTORY");
+  }
+
+  return parts.join("/");
+}
+
 function parseDirectorySetting(value) {
   const raw = String(value ?? "").trim();
   const match = raw.match(/^\[([^\]]+)\]\s*(.*)$/);
@@ -312,13 +447,13 @@ function parseDirectorySetting(value) {
   if (!match) {
     return {
       source: "data",
-      current: raw.replace(/^\/+/, ""),
+      current: normalizeDirectoryPath(raw),
       bucket: null
     };
   }
 
   const descriptor = match[1];
-  const current = match[2].replace(/^\/+/, "");
+  const current = normalizeDirectoryPath(match[2]);
 
   if (descriptor.startsWith("s3:")) {
     return {
@@ -333,6 +468,80 @@ function parseDirectorySetting(value) {
     current,
     bucket: null
   };
+}
+
+
+function getFoundryFilePickerClass() {
+  return foundry?.applications?.apps?.FilePicker?.implementation
+    ?? globalThis.FilePicker
+    ?? null;
+}
+
+function sanitizeUploadFileName(value, fallback = "token.webp") {
+  const raw = String(value ?? "").split(/[\\/]/).pop().trim();
+  const cleaned = raw
+    .replace(/[\u0000-\u001F\u007F]/gu, "")
+    .replace(/[^a-zA-Z0-9._-]+/gu, "_")
+    .replace(/_+/gu, "_")
+    .slice(0, 160);
+
+  if (!cleaned || cleaned === "." || cleaned === "..") return fallback;
+
+  const ext = getExtension(cleaned);
+  if (!["webp", "png", "jpg", "jpeg"].includes(ext)) {
+    return `${cleaned.replace(/\.+$/u, "")}.webp`;
+  }
+
+  return cleaned;
+}
+
+async function ensureDirectoryExists(directory) {
+  const FilePickerClass = getFoundryFilePickerClass();
+  if (!FilePickerClass?.createDirectory) return true;
+
+  const current = String(directory?.current || "").replace(/^\/+|\/+$/gu, "");
+  if (!current) return true;
+
+  const parts = current.split("/").filter(Boolean);
+  let path = "";
+
+  for (const part of parts) {
+    path = path ? `${path}/${part}` : part;
+
+    try {
+      const options = {};
+      if (directory.bucket) options.bucket = directory.bucket;
+      await FilePickerClass.createDirectory(directory.source, path, options);
+    } catch (error) {
+      const message = String(error?.message || error || "");
+      if (
+        !message.includes("EEXIST") &&
+        !message.includes("already exists") &&
+        !message.includes("The S3 key")
+      ) {
+        console.warn(`${MODULE_TITLE} | Could not ensure directory ${path}`, error);
+      }
+    }
+  }
+
+  return true;
+}
+
+async function ensureTokenizerUploadDirectories() {
+  if (!isGM() || !game.modules.get(TOKENIZER_ID)?.active) return;
+
+  const settings = [
+    safeTokenizerSetting("image-upload-directory", "[data] tokenizer/pc-images"),
+    safeTokenizerSetting("npc-image-upload-directory", "[data] tokenizer/npc-images")
+  ];
+
+  for (const setting of settings) {
+    try {
+      await ensureDirectoryExists(parseDirectorySetting(setting));
+    } catch (error) {
+      console.warn(`${MODULE_TITLE} | Tokenizer directory verification failed`, error);
+    }
+  }
 }
 
 function cacheBust(path) {
@@ -371,9 +580,7 @@ function canAccessActor(actor) {
 }
 
 function canManageActor(actor) {
-  if (!canAccessActor(actor)) return false;
-  if (isGM()) return true;
-  return game.settings.get(MODULE_ID, SETTING_PLAYER_MANAGE) === true;
+  return canAccessActor(actor);
 }
 
 function canModifyTokenImage(token, targetSrc = token?.document?.texture?.src) {
@@ -390,6 +597,34 @@ function canModifyTokenImage(token, targetSrc = token?.document?.texture?.src) {
   }
 
   return token.isOwner === true || token.document.isOwner === true;
+}
+
+
+function normalizeHexColor(value, fallback = DEFAULT_FRAME_COLOR) {
+  const raw = String(value ?? "").trim();
+
+  if (/^#[0-9a-f]{6}$/i.test(raw)) {
+    return raw.toUpperCase();
+  }
+
+  if (/^[0-9a-f]{6}$/i.test(raw)) {
+    return `#${raw.toUpperCase()}`;
+  }
+
+  return fallback;
+}
+
+function frameColorPresets() {
+  return [
+    {label: "Marrom", value: "#8B5A2B"},
+    {label: "Ciano", value: "#20D9E8"},
+    {label: "Laranja", value: "#F59A23"},
+    {label: "Vermelho", value: "#D94C4C"},
+    {label: "Verde", value: "#45B96B"},
+    {label: "Roxo", value: "#9B6FE8"},
+    {label: "Branco", value: "#E8E8E8"},
+    {label: "Preto", value: "#222222"}
+  ];
 }
 
 function defaultCrop() {
@@ -431,7 +666,8 @@ function normalizeEntry(entry, index = 0) {
     order: Number.isFinite(Number(entry?.order)) ? Number(entry.order) : index,
     processor: entry?.processor === "frame" ? "frame" : "raw",
     processedAt: Number.isFinite(Number(entry?.processedAt)) ? Number(entry.processedAt) : null,
-    crop: normalizeCrop(entry?.crop)
+    crop: normalizeCrop(entry?.crop),
+    frameColor: normalizeHexColor(entry?.frameColor)
   };
 }
 
@@ -488,7 +724,8 @@ async function migrateActorState(actor) {
     normalized.some((entry, index) =>
       !raw.gallery[index]?.id ||
       !raw.gallery[index]?.source ||
-      !raw.gallery[index]?.crop
+      !raw.gallery[index]?.crop ||
+      !raw.gallery[index]?.frameColor
     );
 
   if (!needsMigration) return false;
@@ -519,10 +756,23 @@ async function saveGallery(actor, entries) {
     .slice(0, maxImages)
     .map((entry, index) => ({...entry, order: index}));
 
-  await actor.setFlag(MODULE_ID, FLAG_KEY, {
+  const state = {
     schemaVersion: SCHEMA_VERSION,
     gallery: normalized
-  });
+  };
+
+  try {
+    await actor.setFlag(MODULE_ID, FLAG_KEY, state);
+  } catch (error) {
+    if (!isGM() && canUseGmRelay()) {
+      await sendSocketRequest("saveGalleryState", {
+        actorId: actor.id,
+        state
+      });
+    } else {
+      throw error;
+    }
+  }
 
   Hooks.callAll(`${MODULE_ID}.galleryChanged`, actor, normalized);
   return normalized;
@@ -893,15 +1143,16 @@ function hexToRgba(hex) {
   };
 }
 
-function drawFrame(ctx, frameImage, size, tintColor = null) {
+function drawFrame(ctx, frameImage, size, tintColor = DEFAULT_FRAME_COLOR) {
   if (!frameImage) return;
 
-  if (!tintColor) {
+  const color = normalizeHexColor(tintColor, "");
+  if (!color) {
     ctx.drawImage(frameImage, 0, 0, size, size);
     return;
   }
 
-  const rgba = hexToRgba(tintColor);
+  const rgba = hexToRgba(color);
   if (!rgba) {
     ctx.drawImage(frameImage, 0, 0, size, size);
     return;
@@ -912,11 +1163,15 @@ function drawFrame(ctx, frameImage, size, tintColor = null) {
   temp.height = size;
   const tctx = temp.getContext("2d");
 
+  // Keep the original stone/metal texture, then colorize it with a translucent
+  // source-atop layer. This avoids turning the frame into a flat solid ring.
   tctx.drawImage(frameImage, 0, 0, size, size);
-  tctx.globalCompositeOperation = "source-in";
-  tctx.fillStyle = `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a})`;
+  tctx.save();
+  tctx.globalCompositeOperation = "source-atop";
+  tctx.globalAlpha = 0.82;
+  tctx.fillStyle = `rgb(${rgba.r},${rgba.g},${rgba.b})`;
   tctx.fillRect(0, 0, size, size);
-  tctx.globalCompositeOperation = "source-over";
+  tctx.restore();
 
   ctx.drawImage(temp, 0, 0);
 }
@@ -958,35 +1213,17 @@ function getUploadDirectory(actor) {
 async function uploadRenderedToken(actor, blob, entryId) {
   const filename = `${slugify(actor.name)}.Wardrobe-${entryId}-${Date.now()}.webp`;
 
-  if (!game.user?.can?.("FILES_UPLOAD")) {
-    if (canUseGmRelay()) {
-      const base64 = await blobToBase64(blob);
-      const result = await sendSocketRequest("uploadRenderedToken", {
-        actorId: actor.id,
-        entryId,
-        filename,
-        mimeType: "image/webp",
-        base64
-      });
-
-      const path = sanitizeSource(result?.path);
-      if (!path) throw new Error("TW_UPLOAD_FAILED");
-      return path;
-    }
-
+  if (!isGM() && !game.user?.can?.("FILES_UPLOAD")) {
     throw new Error("TW_UPLOAD_PERMISSION");
   }
 
   const FilePickerClass = foundry?.applications?.apps?.FilePicker?.implementation
     ?? globalThis.FilePicker;
 
-  if (!FilePickerClass?.upload) {
-    throw new Error("TW_FILE_PICKER_UNAVAILABLE");
-  }
+  if (!FilePickerClass?.upload) throw new Error("TW_FILE_PICKER_UNAVAILABLE");
 
   const directory = getUploadDirectory(actor);
   const file = new File([blob], filename, {type: "image/webp"});
-
   const options = {};
   if (directory.bucket) options.bucket = directory.bucket;
 
@@ -1122,7 +1359,8 @@ async function upsertProcessedEntry(actor, {
   name = "",
   source,
   src,
-  crop
+  crop,
+  frameColor = DEFAULT_FRAME_COLOR
 }) {
   if (!actor || !canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
 
@@ -1139,6 +1377,7 @@ async function upsertProcessedEntry(actor, {
     existing.processor = "frame";
     existing.processedAt = Date.now();
     existing.crop = normalizeCrop(crop);
+    existing.frameColor = normalizeHexColor(frameColor);
   } else {
     gallery.push({
       id,
@@ -1149,7 +1388,8 @@ async function upsertProcessedEntry(actor, {
       order: gallery.length,
       processor: "frame",
       processedAt: Date.now(),
-      crop: normalizeCrop(crop)
+      crop: normalizeCrop(crop),
+      frameColor: normalizeHexColor(frameColor)
     });
   }
 
@@ -1200,8 +1440,9 @@ function processingErrorMessage(error) {
     case "TW_UPLOAD_PERMISSION":
       return "Sem upload local e sem GM ativo para relay.";
     case "TW_NO_ACTIVE_GM":
+      return "É necessário um GM ativo para o relay técnico de upload.";
     case "TW_GM_TIMEOUT":
-      return "Nenhum GM ativo respondeu ao relay. Entre com um GM online e tente novamente.";
+      return "O relay técnico de upload não respondeu a tempo.";
     case "TW_UPLOAD_DIRECTORY_MISSING":
       return "O diretório de upload do Tokenizer não está configurado.";
     case "TW_FRAME_NOT_READY":
@@ -1251,6 +1492,7 @@ class TokenCropperApp extends BaseApplication {
     this.entryId = String(options.entryId || "");
     this.entryName = String(options.name || displayNameFromSource(this.source));
     this.crop = normalizeCrop(options.crop);
+    this.frameColor = normalizeHexColor(options.frameColor);
     this.sourceImage = null;
     this.frameImage = null;
     this.frameConfig = getTokenizerFrameConfig(this.actor, this.token);
@@ -1265,6 +1507,8 @@ class TokenCropperApp extends BaseApplication {
       name: this.entryName,
       zoom: this.crop.zoom,
       zoomPercent: Math.round(this.crop.zoom * 100),
+      frameColor: this.frameColor,
+      frameColorPresets: frameColorPresets(),
       frameReady: this.frameConfig.ready,
       framePath: this.frameConfig.framePath,
       canUpload: this.frameConfig.canUpload,
@@ -1318,6 +1562,39 @@ class TokenCropperApp extends BaseApplication {
       zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
       this.#draw(canvas);
     });
+
+    const colorPicker = root.querySelector('[data-role="frame-color"]');
+    const colorHex = root.querySelector('[data-role="frame-color-hex"]');
+
+    const applyFrameColor = value => {
+      this.frameColor = normalizeHexColor(value);
+
+      if (colorPicker) colorPicker.value = this.frameColor;
+      if (colorHex) colorHex.value = this.frameColor;
+
+      this.#draw(canvas);
+    };
+
+    colorPicker?.addEventListener("input", event => {
+      applyFrameColor(event.currentTarget.value);
+    });
+
+    colorHex?.addEventListener("change", event => {
+      applyFrameColor(event.currentTarget.value);
+    });
+
+    colorHex?.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      applyFrameColor(event.currentTarget.value);
+    });
+
+    for (const button of root.querySelectorAll('[data-role="frame-preset"]')) {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        applyFrameColor(event.currentTarget.dataset.color);
+      });
+    }
 
     canvas.addEventListener("pointerdown", event => {
       this.dragging = true;
@@ -1406,7 +1683,7 @@ class TokenCropperApp extends BaseApplication {
         ctx,
         this.frameImage,
         size,
-        this.frameConfig.tintFrame ? this.frameConfig.tintColor : null
+        this.frameColor
       );
     } else {
       ctx.save();
@@ -1491,17 +1768,31 @@ class TokenCropperApp extends BaseApplication {
       const canvas = await this.#renderFinalCanvas();
       const blob = await canvasToBlob(canvas, "image/webp", 0.92);
       const entryId = this.entryId || foundry.utils.randomID(16);
-      const finalPath = await uploadRenderedToken(this.actor, blob, entryId);
 
-      await upsertProcessedEntry(this.actor, {
-        entryId,
-        name,
-        source: this.source,
-        src: finalPath,
-        crop: this.crop
-      });
+      if (isGM() || game.user?.can?.("FILES_UPLOAD")) {
+        const finalPath = await uploadRenderedToken(this.actor, blob, entryId);
 
-      notify("info", "Aparência preparada e salva.");
+        await upsertProcessedEntry(this.actor, {
+          entryId,
+          name,
+          source: this.source,
+          src: finalPath,
+          crop: this.crop,
+          frameColor: this.frameColor
+        });
+      } else {
+        await requestAppearanceSave({
+          actor: this.actor,
+          entryId,
+          name,
+          source: this.source,
+          crop: this.crop,
+          frameColor: this.frameColor,
+          blob
+        });
+      }
+
+      notify("info", "Aparência salva.");
       await this.close();
 
       if (appInstance?.rendered) {
@@ -1545,7 +1836,8 @@ function openCropper({actor, token, source, entry = null}) {
     source,
     entryId: entry?.id ?? "",
     name: entry?.name ?? displayNameFromSource(source),
-    crop: entry?.crop ?? defaultCrop()
+    crop: entry?.crop ?? defaultCrop(),
+    frameColor: entry?.frameColor ?? DEFAULT_FRAME_COLOR
   });
 
   cropper.render({force: true});
@@ -1570,8 +1862,7 @@ class TokenWardrobeApp extends BaseApplication {
       editCrop: TokenWardrobeApp.#editCrop,
       renameImage: TokenWardrobeApp.#renameImage,
       toggleFavorite: TokenWardrobeApp.#toggleFavorite,
-      removeImage: TokenWardrobeApp.#removeImage,
-      enableTokenizerFrame: TokenWardrobeApp.#enableTokenizerFrame
+      removeImage: TokenWardrobeApp.#removeImage
     }
   };
 
@@ -1663,6 +1954,8 @@ class TokenWardrobeApp extends BaseApplication {
       multipleActors: actors.length > 1,
       multipleTokens: tokens.length > 1,
       currentSrc: token?.document.texture?.src ?? "",
+      canSubmitUrl: canAccessActor(actor),
+      canEditCrop: canAccessActor(actor),
       canManage: canManageActor(actor),
       fixedRingSubject: hasFixedDynamicRingSubject(token),
       tokenizerStatus,
@@ -1671,8 +1964,7 @@ class TokenWardrobeApp extends BaseApplication {
       relayUpload: frame.relayUpload,
       localUpload: frame.localUpload,
       canBrowseFiles: isGM(),
-      canPickCurrentToken: Boolean(preferredSceneTokenForUser()),
-      canEnableFrame: isGM() && frame.active && !frame.frameEnabled
+      canPickCurrentToken: Boolean(preferredSceneTokenForUser())
     };
   }
 
@@ -1777,7 +2069,7 @@ class TokenWardrobeApp extends BaseApplication {
       return;
     }
 
-    if (!canManageActor(actor)) {
+    if (!canAccessActor(actor)) {
       notify("error", "Você não tem ownership desse personagem.");
       return;
     }
@@ -1842,7 +2134,7 @@ class TokenWardrobeApp extends BaseApplication {
   static async #editCrop(event, target) {
     const actor = this.actor;
     const token = actor ? resolveToken(actor, this.tokenId) : null;
-    if (!actor || !token || !canManageActor(actor)) return;
+    if (!actor || !token || !canAccessActor(actor)) return;
 
     const id = String(target.dataset.id || "");
     const entry = getGallery(actor).find(item => item.id === id);
@@ -1904,18 +2196,126 @@ class TokenWardrobeApp extends BaseApplication {
     this.render({force: true});
   }
 
-  static async #enableTokenizerFrame() {
-    if (!isGM() || !game.modules.get(TOKENIZER_ID)?.active) return;
+}
 
-    try {
-      await game.settings.set(TOKENIZER_ID, "add-frame-default", true);
-      notify("info", "Borda padrão do Tokenizer ativada.");
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Could not enable Tokenizer frame`, error);
-      notify("error", "Não foi possível ativar a borda do Tokenizer.");
-    }
+
+function isTokenizerApplication(app) {
+  if (!app) return false;
+
+  return (
+    app.constructor?.name === "Tokenizer" ||
+    app.id === "tokenizer-control" ||
+    app.options?.id === "tokenizer-control"
+  );
+}
+
+function tokenizerBridgeActor(app) {
+  return app?.tokenOptions?.actor ?? null;
+}
+
+function canBridgeTokenizerForApp(app) {
+  if (!isTokenizerApplication(app)) return false;
+  if (isGM()) return false;
+  if (game.user?.can?.("FILES_UPLOAD")) return false;
+  if (!getActiveGM()) return false;
+
+  const actor = tokenizerBridgeActor(app);
+  return Boolean(actor && canAccessActor(actor));
+}
+
+function patchTokenizerApplication(app) {
+  if (!canBridgeTokenizerForApp(app)) return false;
+
+  const actor = tokenizerBridgeActor(app);
+  if (!actor) return false;
+
+  if (!app.__hstwContextPatched && typeof app._prepareContext === "function") {
+    const originalPrepareContext = app._prepareContext.bind(app);
+
+    app._prepareContext = async (...args) => {
+      const context = await originalPrepareContext(...args);
+      return {
+        ...context,
+        canUpload: true
+      };
+    };
+
+    app.__hstwContextPatched = true;
   }
+
+  if (!app.__hstwUploadPatched) {
+    app.updateToken = async function(dataBlob) {
+      if (!this.modifyToken) return;
+
+      const result = await relayTokenizerUpload({
+        actor,
+        kind: "token",
+        fileName: this.tokenFileName,
+        blob: dataBlob
+      });
+
+      const path = sanitizeSource(result?.path);
+      if (!path) throw new Error("TW_TOKENIZER_RELAY_UPLOAD_FAILED");
+
+      this.tokenOptions.tokenUploadDirectory = this.tokenUploadDirectory;
+      this.tokenOptions.tokenFilename = path;
+    };
+
+    app.updateAvatar = async function(dataBlob) {
+      if (!this.modifyAvatar) return;
+
+      const result = await relayTokenizerUpload({
+        actor,
+        kind: "avatar",
+        fileName: this.avatarFileName,
+        blob: dataBlob
+      });
+
+      const path = sanitizeSource(result?.path);
+      if (!path) throw new Error("TW_TOKENIZER_RELAY_UPLOAD_FAILED");
+
+      this.tokenOptions.avatarUploadDirectory = this.avatarUploadDirectory;
+      this.tokenOptions.avatarFilename = path;
+    };
+
+    app.__hstwUploadPatched = true;
+  }
+
+  const applyButton = app.element?.querySelector?.("#ok");
+  if (applyButton) {
+    applyButton.disabled = false;
+    applyButton.removeAttribute?.("disabled");
+    applyButton.title = "Save using HoloSuite GM relay";
+  }
+
+  return true;
+}
+
+function registerTokenizerCompatibilityHooks() {
+  Hooks.on("renderTokenizer", app => {
+    patchTokenizerApplication(app);
+  });
+
+  Hooks.on("renderApplicationV2", app => {
+    if (isTokenizerApplication(app)) {
+      patchTokenizerApplication(app);
+    }
+  });
+}
+
+async function configureTokenizerPlayerBridge() {
+  if (!isGM() || !game.modules.get(TOKENIZER_ID)?.active) return;
+
+  try {
+    if (game.settings.get(TOKENIZER_ID, "disable-player") === true) {
+      await game.settings.set(TOKENIZER_ID, "disable-player", false);
+      console.log(`${MODULE_TITLE} | Enabled Tokenizer UI for players; uploads remain GM-relayed.`);
+    }
+  } catch (error) {
+    console.warn(`${MODULE_TITLE} | Could not enable Tokenizer player UI`, error);
+  }
+
+  await ensureTokenizerUploadDirectories();
 }
 
 function openWardrobe(options = {}) {
@@ -2003,10 +2403,10 @@ function exposeApi() {
 
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, SETTING_PLAYER_MANAGE, {
-    name: "Players podem gerenciar a própria galeria",
-    hint: "Permite que jogadores Owner adicionem, reenquadrem, renomeiem e removam artes do próprio Actor.",
+    name: "Legacy: player gallery management",
+    hint: "Legacy setting retained for migration compatibility. Actor Owners always manage their own wardrobe.",
     scope: "world",
-    config: true,
+    config: false,
     type: Boolean,
     default: true,
     restricted: true
@@ -2032,16 +2432,22 @@ Hooks.once("init", () => {
   });
 
   exposeApi();
-  registerSocketListener();
+  registerTokenizerCompatibilityHooks();
+
+  Hooks.once("socketlib.ready", () => {
+    registerSocketlibBridge();
+  });
 
   Hooks.on("holosuite-core.apiReady", api => {
     registerWithHoloSuite(api);
   });
 });
 
-Hooks.once("ready", () => {
+Hooks.once("ready", async () => {
   exposeApi();
   registerWithHoloSuite();
+  registerSocketlibBridge();
+  await configureTokenizerPlayerBridge();
   console.log(`${MODULE_TITLE} | Ready`);
 });
 

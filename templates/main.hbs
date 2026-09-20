@@ -61,21 +61,13 @@
           <p>Coloque o personagem na cena atual para trocar sua aparência.</p>
         </section>
       {{else}}
-
-        {{#if canEnableFrame}}
-          <div class="twl-inline-warning">
-            <span>A borda padrão do Tokenizer está desligada.</span>
-            <button type="button" data-action="enableTokenizerFrame">Ativar</button>
-          </div>
-        {{/if}}
-
-        {{#if fixedRingSubject}}
+{{#if fixedRingSubject}}
           <div class="twl-inline-warning">
             Dynamic Token Ring possui Subject Texture fixa; ela pode esconder a imagem base.
           </div>
         {{/if}}
 
-        {{#if canManage}}
+        {{#if canSubmitUrl}}
           <section class="twl-add-panel">
             <div class="twl-url-row">
               <input
@@ -100,7 +92,7 @@
               <small>Ative o Tokenizer, sua borda padrão e tenha FILES_UPLOAD local ou um GM ativo para relay.</small>
             {{else}}
               {{#if relayUpload}}
-                <small>Upload via GM relay ativo. Players podem usar URL sem acesso aos arquivos do Foundry.</small>
+                <small>Players usam URL sem acesso aos arquivos. O upload é feito automaticamente por relay técnico.</small>
               {{/if}}
             {{/unless}}
           </section>
@@ -132,20 +124,22 @@
                 <div class="twl-card-footer">
                   <strong title="{{name}}">{{name}}</strong>
 
-                  {{#if ../canManage}}
+                  {{#if ../canEditCrop}}
                     <div class="twl-card-actions twl-card-actions-compact">
                       <button type="button" data-action="editCrop" data-id="{{id}}" title="Reenquadrar">
                         <i class="fa-solid fa-crop-simple"></i>
                       </button>
-                      <button type="button" data-action="toggleFavorite" data-id="{{id}}" title="Favoritar">
-                        <i class="fa-solid fa-star"></i>
-                      </button>
-                      <button type="button" data-action="renameImage" data-id="{{id}}" title="Renomear">
-                        <i class="fa-solid fa-pen"></i>
-                      </button>
-                      <button type="button" data-action="removeImage" data-id="{{id}}" title="Remover">
-                        <i class="fa-solid fa-trash"></i>
-                      </button>
+                      {{#if ../canManage}}
+                        <button type="button" data-action="toggleFavorite" data-id="{{id}}" title="Favoritar">
+                          <i class="fa-solid fa-star"></i>
+                        </button>
+                        <button type="button" data-action="renameImage" data-id="{{id}}" title="Renomear">
+                          <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button type="button" data-action="removeImage" data-id="{{id}}" title="Remover">
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      {{/if}}
                     </div>
                   {{/if}}
                 </div>

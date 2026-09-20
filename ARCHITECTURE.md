@@ -1,139 +1,116 @@
-# Arquitetura v0.5.1
+# Arquitetura — HoloSuite Token Wardrobe v0.8.0
 
-## Mudança principal
+## Componentes
 
-`autoToken()` foi removido integralmente.
+### Wardrobe UI
+Gerencia galeria do Actor Owner e abre o cropper.
 
-Motivo: o Tokenizer possui seu próprio pipeline de Layer/crop/offset. Mesmo com `updateActor:false`,
-isso podia modificar visualmente o enquadramento escolhido antes de gerar o arquivo.
+### Cropper
+Render local:
+1. carrega source;
+2. crop/zoom/pan;
+3. clip circular;
+4. frame;
+5. frameColor;
+6. WEBP.
 
-A v0.4 trata Tokenizer como provedor de **moldura + configuração de armazenamento**.
+### Silent GM Relay
+Transporte: `socketlib.executeAsGM()`.
 
-## Pipeline
+Ações permitidas:
+- `saveAppearance`;
+- `saveGalleryState`;
+- `switchTexture`;
+- `tokenizerUpload`.
 
-1. `source` é carregado.
-2. O usuário controla zoom e pan num canvas quadrado.
-3. A moldura real configurada no Tokenizer é carregada como overlay.
-4. Ao confirmar, o módulo renderiza:
-   - imagem enquadrada;
-   - frame do Tokenizer.
-5. Canvas é exportado para WEBP.
-6. `FilePicker.upload()` grava no diretório de upload configurado pelo Tokenizer.
-7. A galeria recebe o novo `src`.
-8. A troca no mapa atualiza somente `texture.src`.
+Toda ação valida ownership no GM.
 
-## Crop math
+## saveAppearance
 
-`baseScale = max(canvas / imageWidth, canvas / imageHeight)`.
+Player:
+- renderiza WEBP;
+- envia base64 + metadata.
 
-Zoom mínimo = `1`, garantindo cobertura total do quadrado.
+GM:
+- valida Owner;
+- sanitiza filename;
+- garante diretório;
+- faz upload;
+- grava gallery flag.
 
-Pan é limitado por:
+Nenhuma confirmação humana.
 
-```text
-maxX = (drawWidth  - canvasSize) / 2
-maxY = (drawHeight - canvasSize) / 2
+## saveGalleryState
+
+Fallback para Foundry/system que impeça `Actor.setFlag()` no cliente Owner.
+
+GM normaliza todas as entradas antes de persistir.
+
+## switchTexture
+
+Se Player não pode alterar TokenDocument diretamente:
+- GM valida Owner;
+- confirma que `src` pertence à galeria;
+- altera somente `texture.src`.
+
+## Tokenizer Compatibility Bridge
+
+Motivo: Tokenizer oficial usa `game.user.can("FILES_UPLOAD")` para:
+- decidir `canUpload`;
+- desabilitar Apply;
+- opcionalmente desabilitar o módulo para Players.
+
+Integração:
+- GM coloca `vtta-tokenizer.disable-player=false`;
+- hooks `renderTokenizer` e `renderApplicationV2`;
+- detecta instância Tokenizer;
+- exige Actor Owner + GM ativo;
+- sobrescreve apenas `updateToken()` e `updateAvatar()` da instância;
+- esses métodos enviam o Blob ao relay `tokenizerUpload`;
+- `_prepareContext()` da instância passa `canUpload=true`;
+- botão `#ok` é habilitado.
+
+Não há monkeypatch de `game.user.can`, FilePicker global ou permissões Foundry.
+
+## Diretórios
+
+Antes de upload, `ensureDirectoryExists()` tenta criar cada segmento via `FilePicker.createDirectory`.
+
+Paths com traversal não são aceitos por `parseDirectorySetting`/sanitização de entrada de upload.
+
+## Schema
+
+Schema v4:
+- id
+- name
+- source
+- src
+- favorite
+- order
+- processor
+- processedAt
+- crop
+- frameColor
+
+## Limites
+
+- máximo 100 aparências;
+- base64 relay máximo ~28 MB codificado;
+- filenames sanitizados;
+- URL protocols perigosos bloqueados;
+- gallery source precisa ser http/https ou imagem local suportada.
+
+
+## Autenticação do relay
+
+O Player não envia `requesterId`.
+
+A função registrada no socketlib é uma função normal e obtém o remetente somente de:
+
+```js
+this.socketdata.userId
 ```
 
-Logo não é possível arrastar até expor áreas vazias do canvas.
+Sem contexto autenticado, a ação falha com `TW_AUTH_UNAUTHENTICATED`.
 
-## Preview
-
-O preview usa:
-- imagem real;
-- área circular segura;
-- frame real Tokenizer;
-- tint do frame, quando Tokenizer usa frame-tint.
-
-## Responsive
-
-A shell usa layout flex:
-- header fixo;
-- conteúdo `min-height:0; overflow-y:auto`;
-- footer do cropper fixo.
-
-Isso corrige o problema anterior em telas pequenas onde o conteúdo era cortado sem possibilidade de scroll.
-
-## LANCER
-
-O adapter não replica cegamente a classificação genérica do Tokenizer:
-`pilot` e `mech` são tratados como PC, evitando selecionar a moldura/diretório NPC no sistema LANCER.
-
-
-## Correção de frame
-
-A v0.4.1 ignora `frame-tint` dentro do Wardrobe e lê o valor `default`
-registrado em `vtta-tokenizer.default-frame-pc`.
-
-Para LANCER `pilot` e `mech`, isso seleciona a moldura clássica de PC
-em vez de `plain-marble-frame-grey.png`.
-
-## Máscara circular real
-
-Preview e exportação usam a mesma função `drawCroppedSource()`:
-
-```text
-save()
-beginPath()
-arc(center, radius=size/2)
-clip()
-drawImage(...)
-restore()
-```
-
-Portanto os cantos ficam transparentes antes de a moldura ser desenhada.
-O WEBP exportado contém o recorte, não apenas uma indicação visual de área segura.
-
-
-## GM Relay
-
-A v0.5.0 introduz relay leve via `game.socket` no canal do módulo.
-
-### Casos de uso
-
-1. Player **sem `FILES_UPLOAD`** salva a imagem recortada:
-   - cliente do player renderiza o canvas;
-   - converte o blob para base64;
-   - envia pedido ao GM ativo;
-   - GM reconstroi o arquivo e usa `FilePicker.upload()`;
-   - retorna o path final.
-
-2. Player **sem permissão direta para atualizar o TokenDocument**:
-   - player seleciona uma arte da galeria;
-   - envia pedido ao GM ativo;
-   - GM valida ownership do Actor do requester;
-   - GM executa `token.document.update({"texture.src": cleanSrc})`.
-
-### Segurança
-
-O relay só atende se o requester for OWNER do Actor correspondente.
-Mesmo via relay, o módulo continua limitado a:
-- upload do arquivo final;
-- update de `texture.src` do token escolhido.
-
-Não há atualização de Actor, Prototype Token, HP, posição ou automações.
-
-
-## Seleção de token
-
-Os dois atalhos críticos não dependem mais de `data-action`.
-Eles são ligados diretamente em `_onRender()` e:
-- consultam `canvas.tokens.controlled`;
-- validam ownership robusto;
-- gravam `actorId` + `tokenId`;
-- chamam `token.control({releaseOthers:true})`;
-- centralizam a câmera no token.
-
-## Frame PC
-
-Para eliminar diferenças de configuração do mundo, LANCER `pilot/mech` usa sempre
-o asset PC embutido do Tokenizer:
-
-`modules/vtta-tokenizer/img/default-frame-pc.png`
-
-O pipeline `frame-tint` e o `default-frame-pc` custom do mundo não participam dessa escolha.
-
-## URLs assinadas
-
-`loadImage()` não adiciona cache-busting em URLs remotas.
-Isso evita alterar assinaturas/query strings de CDN, especialmente Discord.
+Isso impede spoof do ID de outro Player no payload.

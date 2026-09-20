@@ -1,143 +1,106 @@
-# HoloSuite Token Wardrobe v0.5.1
+# HoloSuite Token Wardrobe v0.8.0
 
-## Fluxo atual
+Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core e ao Tokenizer.
 
-A versão 0.4 remove o auto-enquadramento da versão 0.3.
+## Regra principal
 
-```text
-colar URL / escolher imagem
-        ↓
-editor manual
-        ↓
-arrastar + zoom
-        ↓
-preview com a moldura real do Tokenizer
-        ↓
-confirmar
-        ↓
-o módulo renderiza arte + moldura
-        ↓
-upload no diretório configurado no Tokenizer
-        ↓
-galeria
-        ↓
-troca somente texture.src
-```
+O Owner do Actor controla completamente a própria galeria:
+
+- colar URL;
+- enquadrar;
+- zoom/arrastar;
+- escolher cor da borda;
+- salvar;
+- reenquadrar;
+- renomear;
+- favoritar;
+- remover;
+- trocar a arte do próprio token.
+
+Não existe pedido de autorização ao GM.
+
+## Players e arquivos
+
+Players NÃO recebem:
+
+- FilePicker do Foundry;
+- FILES_BROWSE;
+- FILES_UPLOAD.
+
+Quando um upload é necessário, o módulo usa um GM ativo apenas como **relay técnico silencioso**.
+
+O GM valida que o requester realmente é Owner do Actor antes de executar:
+- upload do WEBP;
+- escrita da galeria quando necessária;
+- troca de `texture.src` quando o Player não consegue atualizar o TokenDocument diretamente.
 
 ## URL
 
-Aceita link direto `http://` / `https://` de imagem, incluindo CDNs quando o servidor permite uso em canvas.
+Aceita links diretos `http://` e `https://`.
 
-Para reenquadrar e exportar uma imagem remota, o navegador precisa poder lê-la via CORS.
-O módulo reutiliza o proxy configurado no Tokenizer quando aplicável.
-
-Links de páginas (por exemplo, uma página de Pin em vez do arquivo da imagem) não são imagens diretas.
-
-## Editor manual
-
-- arraste a imagem;
-- zoom de 100% a 600%;
-- roda do mouse também altera zoom;
-- o círculo escurecido mostra a área segura;
-- a moldura configurada no Tokenizer aparece por cima durante a edição;
-- Resetar volta ao enquadramento central padrão.
-
-O zoom mínimo mantém a imagem cobrindo completamente o quadrado, como seletores de avatar.
-
-## Tokenizer
-
-A v0.4 NÃO chama `autoToken()`.
-
-Ela usa somente as configurações e assets do Tokenizer:
-- borda padrão PC/NPC;
-- borda tintada quando configurada;
-- cores de tint;
-- diretório de upload;
-- tamanho configurado do token;
-- proxy configurado para URLs.
-
-Isso elimina o segundo auto-enquadramento que estava alterando o posicionamento escolhido pelo usuário.
-
-## Segurança
-
-A única mutação em Token continua sendo:
-
-```js
-await token.document.update({"texture.src": cleanSrc});
-```
-
-Não altera Actor, Prototype Token, posição, escala, visão, luz, HP, condições ou flags de automação.
-
-## Tela pequena
-
-A janela principal e o editor:
-- respeitam `vw` e `vh`;
-- possuem altura máxima;
-- têm rolagem vertical própria;
-- usam grid de duas colunas em telas menores;
-- mantêm os botões de confirmação do cropper fixos no rodapé.
-
-## Schema v3
-
-Cada entrada salva:
-- `source`: URL/arquivo original;
-- `src`: imagem final com moldura;
-- `crop.zoom`;
-- `crop.panX`;
-- `crop.panY`.
-
-Assim **Reenquadrar** abre novamente a imagem original usando o posicionamento salvo.
-
-## LANCER
-
-A integração classifica Actors `pilot` e `mech` como PC para escolher:
-- `default-frame-pc`;
-- `image-upload-directory`.
-
-Actors `npc` e `deployable` permanecem no caminho NPC.
-
-
-## Correções v0.4.1
-
-- removido uso de frame tintado no Wardrobe;
-- `pilot`, `mech`, `character` e `pc` usam o **frame clássico padrão de PC do Tokenizer**;
-- o preview e o arquivo final agora aplicam máscara circular real;
-- pixels fora do círculo ficam transparentes no WEBP;
-- a imagem não pode mais aparecer nos cantos quadrados;
-- preview usa fundo quadriculado para deixar a transparência visível.
-
-A escolha do frame clássico usa o valor **default registrado pelo Tokenizer**, não o frame tintado ativo no mundo.
-
-
-## Correções v0.5.0
-
-- players podem colar URL mesmo sem acesso aos arquivos do Foundry;
-- upload final pode ser feito por **GM relay** quando o player não possui `FILES_UPLOAD`;
-- troca de `texture.src` também pode ser feita por **GM relay** quando o token da cena não é modificável diretamente pelo player;
-- botão **Token selecionado** para pegar o token atualmente marcado na mesa;
-- botão **Meu token na cena** para focar automaticamente o primeiro token do player na cena atual;
-- botão **Escolher imagem do Foundry** agora fica apenas para GM;
-- o frame do Wardrobe usa o **frame configurado em `default-frame-pc` / `default-frame-neutral` / `default-frame-npc`**, ignorando o pipeline de tint.
-
-### Importante sobre Discord / Pinterest
-
-O app aceita **URL direta da imagem**.  
-Exemplos que tendem a funcionar:
+Exemplos típicos:
 - `cdn.discordapp.com/...`
 - `media.discordapp.net/...`
 - `i.pinimg.com/...`
 
-Links de página, como um pin do Pinterest ou post, não são arquivo de imagem direto e podem falhar.
+URLs assinadas do Discord são preservadas sem query-string extra.
 
+Links de página/post/pin não são imagens diretas.
 
-## Correções v0.5.1
+## Editor
 
-- `Token selecionado` e `Meu token na cena` usam listeners DOM diretos em vez do action dispatcher;
-- ownership do Actor/token é detectado também por `testUserPermission`, `getUserLevel` e mapa de ownership;
-- `Meu token na cena` controla o token e centraliza a câmera nele para feedback visual imediato;
-- `Token selecionado` usa diretamente `canvas.tokens.controlled`;
-- para `pilot`, `mech`, `character` e `pc`, a moldura é **forçada** para:
-  `modules/vtta-tokenizer/img/default-frame-pc.png`;
-- a configuração world `default-frame-pc` deixa de conseguir substituir a moldura marrom por uma grey/custom;
-- URLs remotas não recebem mais `?hstw=...` extra; isso preserva URLs assinadas do Discord;
-- URLs diretas `i.pinimg.com`, `cdn.discordapp.com` e `media.discordapp.net` continuam aceitas.
+- crop manual;
+- zoom 100%–600%;
+- drag;
+- recorte circular real;
+- transparência fora do círculo;
+- cor da borda por aparência;
+- color picker;
+- HEX;
+- presets.
+
+## Tokenizer standalone sem FILES_UPLOAD
+
+O Tokenizer oficial normalmente exige FILES_UPLOAD para Player.
+
+Com o Wardrobe ativo:
+- o setting `vtta-tokenizer.disable-player` é colocado em `false` pelo GM;
+- o Tokenizer continua sem FilePicker para o Player;
+- quando a janela Tokenizer é renderizada para um Actor que o Player possui, o botão Apply é habilitado;
+- `updateToken()` e `updateAvatar()` dessa instância são redirecionados para o GM relay;
+- o arquivo final é salvo na pasta configurada pelo Tokenizer.
+
+Nenhuma permissão Foundry é concedida ao Player.
+
+## Tokenizer upload directories
+
+O GM relay usa:
+- `vtta-tokenizer.image-upload-directory` para PC/Pilot/Mech;
+- `vtta-tokenizer.npc-image-upload-directory` para NPC.
+
+O módulo verifica/cria a árvore de diretórios quando possível.
+
+## LANCER
+
+`pilot` e `mech` são tratados como PC.
+
+A moldura-base PC do Wardrobe é:
+`modules/vtta-tokenizer/img/default-frame-pc.png`
+
+A cor final é escolhida no editor e salva por aparência.
+
+## Segurança
+
+O Wardrobe não chama `Actor.update()` nem `prototypeToken.update()`.
+
+A troca de arte da mesa continua limitada a:
+
+```js
+{"texture.src": cleanSrc}
+```
+
+O Tokenizer standalone mantém seu próprio callback de atualização normal; o Wardrobe apenas substitui o estágio de upload quando o Player não possui FILES_UPLOAD.
+
+## Dependência
+
+`socketlib` é dependência obrigatória para o relay GM autenticado.
