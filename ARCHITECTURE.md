@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.8.1
+# Arquitetura — HoloSuite Token Wardrobe v0.9.0
 
 ## Componentes
 
@@ -131,3 +131,31 @@ containScale / coverScale
 Isso permite ao botão `Imagem inteira` chegar ao enquadramento que mostra a imagem inteira sem alterar o modelo de dados.
 
 Em eixos cujo tamanho renderizado fica menor que o canvas, `pan=0` é imposto para manter centralização previsível.
+
+
+## Neutral token targeting
+
+O Wardrobe diferencia:
+- **identificar um TokenDocument** para trocar `texture.src`;
+- **controlar um Token no Canvas**.
+
+A primeira operação não exige a segunda.
+
+Nenhum fluxo do Wardrobe chama `token.control()` ou `canvas.tokens.controlled = ...`.
+Isso evita ativar overlays visuais de seleção/hover do Foundry/LANCER.
+
+
+## Tokenizer 5.0.3 frame fidelity
+
+Referência: `src/tokenizer/Layer.js::applyTint()` do Tokenizer 5.0.3.
+
+O Wardrobe reproduz:
+- marble source;
+- `source-atop` para formar a cópia colorida;
+- blend `color` sobre o frame original;
+- `source-over` para compor o frame final.
+
+O antigo `globalAlpha = 0.82` foi removido.
+
+A imagem-base vem de `vtta-tokenizer.default-frame-tint`, cujo default no 5.0.3 é:
+`modules/vtta-tokenizer/img/plain-marble-frame-grey.png`.

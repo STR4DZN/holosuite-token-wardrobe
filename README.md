@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.8.1
+# HoloSuite Token Wardrobe v0.9.0
 
 Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core e ao Tokenizer.
 
@@ -119,3 +119,39 @@ O cropper agora permite zoom de **10% a 600%**.
 O arquivo final usa exatamente o mesmo zoom/crop do preview.
 
 Também foi corrigido um caminho antigo do render final que podia ignorar a `frameColor` escolhida.
+
+
+## v0.8.2 — sem highlight/glow ao escolher token
+
+O Wardrobe não chama mais `token.control()`.
+
+Os botões:
+- `Token selecionado`;
+- `Meu token na cena`;
+
+apenas guardam `actorId` + `tokenId` e podem centralizar a câmera.
+
+Eles não selecionam/controlam o token no Canvas e, portanto, não acionam a borda/highlight visual do Foundry/LANCER.
+
+A moldura circular gerada no WEBP permanece independente desse overlay da mesa.
+
+
+## v0.9.0 — fidelidade visual ao Tokenizer 5.0.3
+
+A moldura colorida agora segue o pipeline real do Tokenizer **5.0.3**.
+
+Base:
+- `vtta-tokenizer.default-frame-tint`;
+- fallback: `modules/vtta-tokenizer/img/plain-marble-frame-grey.png`.
+
+Tint:
+1. desenha a moldura marmorizada original;
+2. gera uma cópia colorida com `source-atop`;
+3. combina a cópia com a original usando `globalCompositeOperation = "color"`;
+4. desenha o resultado sobre o token.
+
+Isso preserva a luminosidade, veios, sombras e detalhes da textura marmorizada em vez de aplicar uma camada translúcida por cima.
+
+A cor continua escolhida por aparência.
+
+Também foi corrigido o dropdown de tokens: um Owner vê seus Tokens mesmo quando a atualização direta do TokenDocument é bloqueada e depende do relay.

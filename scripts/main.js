@@ -804,6 +804,8 @@ function currentControlledOwnedToken() {
 }
 
 function preferredSceneTokenForUser() {
+  // Important: resolving a token for Wardrobe must never control/select it.
+  // Canvas selection/highlight is visual state owned by Foundry/LANCER.
   const controlled = currentControlledOwnedToken();
   if (controlled) return controlled;
 
@@ -946,28 +948,16 @@ function getTokenizerFrameConfig(actor, token) {
   const localUpload = game.user?.can?.("FILES_UPLOAD") === true;
   const relayUpload = canUseGmRelay();
   const canUpload = localUpload || relayUpload;
-  const tokenType = getActorTokenType(actor);
-  const disposition = Number(token?.document?.disposition ?? actor?.prototypeToken?.disposition ?? 0);
 
-  // The user requested the Tokenizer's bundled classic PC frame, regardless of
-  // a world setting that may point to a grey/custom frame.
-  let rawFrame = "";
+  // Tokenizer 5.0.3 tint mode uses `default-frame-tint` as its frame image.
+  // Its built-in default is plain-marble-frame-grey.png.
+  const configuredTintFrame = safeTokenizerSetting(
+    "default-frame-tint",
+    "[data] modules/vtta-tokenizer/img/plain-marble-frame-grey.png"
+  );
 
-  if (active) {
-    if (tokenType === "pc") {
-      rawFrame = "[data] modules/vtta-tokenizer/img/default-frame-pc.png";
-    } else if (disposition === 0 || disposition === 1) {
-      rawFrame = safeTokenizerSetting(
-        "default-frame-neutral",
-        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
-      );
-    } else {
-      rawFrame = safeTokenizerSetting(
-        "default-frame-npc",
-        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
-      );
-    }
-  }
+  const rawFrame = String(configuredTintFrame || "").trim()
+    || "[data] modules/vtta-tokenizer/img/plain-marble-frame-grey.png";
 
   const framePath = sanitizeSource(stripDirectoryPrefix(rawFrame));
 
@@ -978,10 +968,9 @@ function getTokenizerFrameConfig(actor, token) {
     canUpload,
     frameEnabled: active && Boolean(framePath),
     framePath,
-    tintFrame: false,
-    tintColor: null,
-    classicFrame: true,
-    forcedBundledPcFrame: tokenType === "pc",
+    tintFrame: true,
+    tintAlgorithm: "tokenizer-5.0.3",
+    tokenizerTintBase: true,
     ready: active && canUpload && Boolean(framePath),
     version: String(module?.version ?? "")
   };
@@ -1169,28 +1158,38 @@ function drawFrame(ctx, frameImage, size, tintColor = DEFAULT_FRAME_COLOR) {
     return;
   }
 
-  const rgba = hexToRgba(color);
-  if (!rgba) {
-    ctx.drawImage(frameImage, 0, 0, size, size);
-    return;
-  }
+  // Reproduce Tokenizer 5.0.3 Layer.applyTint() instead of approximating it.
+  //
+  // Tokenizer 5.0.3:
+  // 1) draws the original marble frame;
+  // 2) creates a tinted copy using source-atop;
+  // 3) composites that copy over the original using the Canvas "color"
+  //    blend mode, preserving the original frame's luminosity/details.
+  const frameCanvas = document.createElement("canvas");
+  frameCanvas.width = size;
+  frameCanvas.height = size;
+  const frameCtx = frameCanvas.getContext("2d");
 
-  const temp = document.createElement("canvas");
-  temp.width = size;
-  temp.height = size;
-  const tctx = temp.getContext("2d");
+  const tintCanvas = document.createElement("canvas");
+  tintCanvas.width = size;
+  tintCanvas.height = size;
+  const tintCtx = tintCanvas.getContext("2d");
 
-  // Keep the original stone/metal texture, then colorize it with a translucent
-  // source-atop layer. This avoids turning the frame into a flat solid ring.
-  tctx.drawImage(frameImage, 0, 0, size, size);
-  tctx.save();
-  tctx.globalCompositeOperation = "source-atop";
-  tctx.globalAlpha = 0.82;
-  tctx.fillStyle = `rgb(${rgba.r},${rgba.g},${rgba.b})`;
-  tctx.fillRect(0, 0, size, size);
-  tctx.restore();
+  frameCtx.clearRect(0, 0, size, size);
+  frameCtx.drawImage(frameImage, 0, 0, size, size);
 
-  ctx.drawImage(temp, 0, 0);
+  tintCtx.clearRect(0, 0, size, size);
+  tintCtx.drawImage(frameImage, 0, 0, size, size);
+  tintCtx.globalCompositeOperation = "source-atop";
+  tintCtx.fillStyle = color;
+  tintCtx.fillRect(0, 0, size, size);
+  tintCtx.globalCompositeOperation = "source-over";
+
+  frameCtx.globalCompositeOperation = "color";
+  frameCtx.drawImage(tintCanvas, 0, 0, size, size);
+  frameCtx.globalCompositeOperation = "source-over";
+
+  ctx.drawImage(frameCanvas, 0, 0, size, size);
 }
 
 async function canvasToBlob(canvas, type = "image/webp", quality = 0.92) {
@@ -1531,6 +1530,7 @@ class TokenCropperApp extends BaseApplication {
       frameColorPresets: frameColorPresets(),
       frameReady: this.frameConfig.ready,
       framePath: this.frameConfig.framePath,
+      frameAlgorithm: this.frameConfig.tintAlgorithm,
       canUpload: this.frameConfig.canUpload,
       tokenizerActive: this.frameConfig.active,
       tokenizerVersion: this.frameConfig.version,
@@ -1877,7 +1877,7 @@ function openCropper({actor, token, source, entry = null}) {
   }
 
   if (!frameConfig.frameEnabled || !frameConfig.framePath) {
-    notify("error", "A borda padrão do Tokenizer está desativada ou não foi encontrada.");
+    notify("error", "Não encontrei a moldura de tonalidade do Tokenizer 5.0.3.");
     return null;
   }
 
@@ -1951,7 +1951,9 @@ class TokenWardrobeApp extends BaseApplication {
     }
 
     const actors = getEligibleActors();
-    const tokens = actor ? actorTokensOnCurrentScene(actor).filter(canModifyTokenImage) : [];
+    const tokens = actor
+      ? actorTokensOnCurrentScene(actor).filter(item => canAccessActor(item.actor))
+      : [];
     const token = actor ? resolveToken(actor, this.tokenId) : null;
 
     if (token) this.tokenId = token.id;
@@ -2066,7 +2068,6 @@ class TokenWardrobeApp extends BaseApplication {
       this.tokenId = token.id;
 
       try {
-        token.control?.({releaseOthers: true});
         if (token.center && canvas?.animatePan) {
           await canvas.animatePan({x: token.center.x, y: token.center.y, duration: 180});
         }
@@ -2093,7 +2094,6 @@ class TokenWardrobeApp extends BaseApplication {
       this.tokenId = token.id;
 
       try {
-        token.control?.({releaseOthers: true});
         if (token.center && canvas?.animatePan) {
           await canvas.animatePan({x: token.center.x, y: token.center.y, duration: 180});
         }

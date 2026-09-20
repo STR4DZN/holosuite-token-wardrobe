@@ -1,10 +1,15 @@
-# MASS TEST REPORT — HoloSuite Token Wardrobe v0.8.0
+# MASS TEST REPORT — HoloSuite Token Wardrobe v0.9.0
+
+## Alvo de compatibilidade
+
+- Foundry VTT: 13.351
+- Tokenizer: **5.0.3**
+- HoloSuite Core
+- Socketlib
 
 ## Resultado
 
 **PASS**
-
-### Testes comportamentais
 
 ```text
 HoloSuite Token Wardrobe | Ready
@@ -12,6 +17,8 @@ HoloSuite Token Wardrobe | Enabled Tokenizer UI for players; uploads remain GM-r
 {
   "tests": "PASS",
   "permissionOwnerAutonomy": "PASS",
+  "neutralTokenTargeting": "PASS",
+  "noForcedCanvasControl": "PASS",
   "silentAppearanceRelay": "PASS",
   "silentGalleryFallback": "PASS",
   "relaySwitch": "PASS",
@@ -30,55 +37,65 @@ HoloSuite Token Wardrobe | Enabled Tokenizer UI for players; uploads remain GM-r
   "pinterestDirectUrl": "PASS",
   "migrationV4": "PASS",
   "maxGalleryLimit": "PASS",
-  "randomizedCropCases": 2500,
+  "randomizedCropCases": 5000,
   "randomizedColorCases": 1000,
+  "zoomOut10To600": "PASS",
+  "fitImage16x9": "PASS",
+  "fitImage9x16": "PASS",
+  "fitImageUltraWide": "PASS",
+  "tokenizer503MarbleTint": "PASS",
+  "tokenizer503ColorBlend": "PASS",
+  "tokenizerCustomTintFrame": "PASS",
+  "ownedRelayTokenInDropdown": "PASS",
   "texturedFrameColor": "PASS",
   "noGmTokenizerBridgeBlocked": "PASS",
   "circularClip": "PASS"
 }
 ```
 
-### Cobertura
+## Correção visual principal
 
-- Owner autonomy com `playerCanManage=false`;
-- Player sem `FILES_UPLOAD`;
-- Player sem `FILES_BROWSE`;
-- saveAppearance via GM relay silencioso;
-- fallback de `Actor.setFlag()` via GM;
-- troca de token via relay;
-- troca direta quando permitida;
-- matriz de requester não autorizado;
-- autenticação real do remetente via `this.socketdata.userId`;
-- tentativa de spoof de requester bloqueada;
-- upload > 28 MB codificado bloqueado;
-- `vtta-tokenizer.disable-player` reparado;
-- diretórios do Tokenizer verificados/criados;
+A v0.9.0 deixa de aproximar o tint do frame.
+
+Ela reproduz o pipeline efetivo do Tokenizer 5.0.3:
+1. `default-frame-tint`;
+2. fallback `plain-marble-frame-grey.png`;
+3. cópia tintada com `source-atop`;
+4. blend da cópia sobre o mármore original com `color`;
+5. composição final `source-over`.
+
+O antigo `globalAlpha = 0.82` foi removido.
+
+## Regressões cobertas
+
+- Owner autonomia completa sem FILES_UPLOAD;
+- FilePicker oculto do Player;
+- relay Socketlib autenticado;
+- spoof de requester bloqueado;
 - Tokenizer standalone bridge;
-- Apply do Tokenizer habilitado sem conceder FILES_UPLOAD;
-- browse do Tokenizer continua false;
-- FilePicker global não é monkeypatched;
-- Discord signed URL preservada;
-- Pinterest direct URL preservada;
-- schema v4/migração;
+- Tokenizer Apply sem FILES_UPLOAD;
+- Tokenizer browse continua bloqueado;
+- Discord signed URL;
+- Pinterest direct URL;
+- seleção neutra de Token;
+- dropdown inclui token Owner que depende de relay;
+- zoom 10%–600%;
+- botão Imagem inteira;
+- 5.000 crops randomizados;
+- 1.000 cores randomizadas;
+- recorte circular;
+- cor no preview e arquivo final;
+- base marmorizada 5.0.3;
+- custom `default-frame-tint`;
 - limite de galeria;
-- 2.500 casos aleatórios de crop;
-- 1.000 casos aleatórios de cor;
-- tint preservando textura;
-- clip circular real.
+- migração schema v4;
+- hardening de path/filename/tamanho.
 
-### Auditoria estática
+## Segurança
 
-PASS — Node `--check`.
-PASS — `module.json` e `pt-BR.json`.
-PASS — Handlebars blocks balanceados.
-PASS — CSS braces balanceadas.
-PASS — HoloSuite, Socketlib e Tokenizer como dependencies.
-PASS — nenhum fluxo de aprovação humana.
-PASS — nenhum raw `game.socket`.
-PASS — sender autenticado por SocketlibContext.
-PASS — nenhuma elevação de FILES_UPLOAD / FILES_BROWSE.
-PASS — única alteração de setting do Tokenizer: `disable-player=false`.
-PASS — nenhuma chamada `Actor.update()` pelo Wardrobe.
-PASS — nenhuma chamada `prototypeToken.update()`.
-PASS — nenhuma chamada `autoToken()`.
-PASS — updates de cena limitados a `texture.src`.
+- nenhuma chamada `Actor.update()`;
+- nenhuma chamada `prototypeToken.update()`;
+- nenhuma chamada `autoToken()`;
+- nenhuma elevação de FILES_UPLOAD/FILES_BROWSE;
+- nenhuma seleção automática via `token.control()`;
+- mudança do token da cena limitada a `texture.src`.
