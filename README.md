@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.9.0
+# HoloSuite Token Wardrobe v0.9.2
 
 Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core e ao Tokenizer.
 
@@ -155,3 +155,32 @@ Isso preserva a luminosidade, veios, sombras e detalhes da textura marmorizada e
 A cor continua escolhida por aparência.
 
 Também foi corrigido o dropdown de tokens: um Owner vê seus Tokens mesmo quando a atualização direta do TokenDocument é bloqueada e depende do relay.
+
+
+## v0.9.1 — correção do bridge do Tokenizer nativo
+
+Correção focada em um conflito observado ao usar o Tokenizer nativo com o Wardrobe ativo:
+a arte/estado do retrato podia ser sincronizada de forma incompleta.
+
+A ponte agora:
+- retorna o `path` salvo em `updateToken()` e `updateAvatar()`;
+- sincroniza o caminho salvo em todos os campos usados comumente por integrações do Tokenizer:
+  - `tokenOptions.tokenFilename`;
+  - `tokenOptions.avatarFilename`;
+  - `avatarOptions.avatarFilename`;
+  - `tokenFileName` / `avatarFileName`;
+  - metadados espelhados (`src`, `img`, `imagePath`, `current`).
+
+Objetivo: evitar que o Tokenizer aplique caminho incompleto ou reaproveite estado errado do token na arte de retrato.
+
+
+## v0.9.2 — borda padrão = `default-frame-npc.png`
+
+Alteração pedida: a borda padrão agora usa a base do Tokenizer:
+
+- `vtta-tokenizer.default-frame-neutral`
+- fallback: `modules/vtta-tokenizer/img/default-frame-npc.png`
+
+Isso substitui a base padrão anterior.
+
+A lógica de cor, crop, relay e bridge do Tokenizer continua a mesma.

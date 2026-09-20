@@ -949,15 +949,15 @@ function getTokenizerFrameConfig(actor, token) {
   const relayUpload = canUseGmRelay();
   const canUpload = localUpload || relayUpload;
 
-  // Tokenizer 5.0.3 tint mode uses `default-frame-tint` as its frame image.
-  // Its built-in default is plain-marble-frame-grey.png.
-  const configuredTintFrame = safeTokenizerSetting(
-    "default-frame-tint",
-    "[data] modules/vtta-tokenizer/img/plain-marble-frame-grey.png"
+  // Use Tokenizer's NPC frame as the default base border.
+  // This matches the user's requested default more closely than the tint-only marble base.
+  const configuredNpcFrame = safeTokenizerSetting(
+    "default-frame-neutral",
+    "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
   );
 
-  const rawFrame = String(configuredTintFrame || "").trim()
-    || "[data] modules/vtta-tokenizer/img/plain-marble-frame-grey.png";
+  const rawFrame = String(configuredNpcFrame || "").trim()
+    || "[data] modules/vtta-tokenizer/img/default-frame-npc.png";
 
   const framePath = sanitizeSource(stripDirectoryPrefix(rawFrame));
 
@@ -969,7 +969,7 @@ function getTokenizerFrameConfig(actor, token) {
     frameEnabled: active && Boolean(framePath),
     framePath,
     tintFrame: true,
-    tintAlgorithm: "tokenizer-5.0.3",
+    tintAlgorithm: "tokenizer-npc-default",
     tokenizerTintBase: true,
     ready: active && canUpload && Boolean(framePath),
     version: String(module?.version ?? "")
@@ -1877,7 +1877,7 @@ function openCropper({actor, token, source, entry = null}) {
   }
 
   if (!frameConfig.frameEnabled || !frameConfig.framePath) {
-    notify("error", "Não encontrei a moldura de tonalidade do Tokenizer 5.0.3.");
+    notify("error", "Não encontrei a moldura padrão NPC do Tokenizer.");
     return null;
   }
 
@@ -2261,7 +2261,58 @@ function isTokenizerApplication(app) {
 }
 
 function tokenizerBridgeActor(app) {
-  return app?.tokenOptions?.actor ?? null;
+  return app?.tokenOptions?.actor ?? app?.actor ?? null;
+}
+
+function setIfObject(target, key, value) {
+  if (target && typeof target === "object") target[key] = value;
+}
+
+function syncTokenizerUploadState(app, kind, path) {
+  const cleanPath = sanitizeSource(path);
+  if (!cleanPath) return "";
+
+  if (kind === "token") {
+    setIfObject(app?.tokenOptions, "tokenUploadDirectory", app?.tokenUploadDirectory);
+    setIfObject(app?.tokenOptions, "tokenFilename", cleanPath);
+    setIfObject(app?.tokenOptions, "tokenFileName", cleanPath);
+    setIfObject(app?.tokenOptions, "current", cleanPath);
+    setIfObject(app?.tokenOptions, "imagePath", cleanPath);
+    setIfObject(app?.tokenOptions, "img", cleanPath);
+    setIfObject(app?.tokenOptions, "src", cleanPath);
+
+    if (typeof app === "object" && app) {
+      app.tokenFilename = cleanPath;
+      app.tokenFileName = cleanPath;
+    }
+
+    setIfObject(app?.token, "src", cleanPath);
+    setIfObject(app?.token, "img", cleanPath);
+    setIfObject(app?.token, "path", cleanPath);
+  } else {
+    setIfObject(app?.tokenOptions, "avatarUploadDirectory", app?.avatarUploadDirectory);
+    setIfObject(app?.tokenOptions, "avatarFilename", cleanPath);
+    setIfObject(app?.tokenOptions, "avatarFileName", cleanPath);
+
+    setIfObject(app?.avatarOptions, "avatarUploadDirectory", app?.avatarUploadDirectory);
+    setIfObject(app?.avatarOptions, "avatarFilename", cleanPath);
+    setIfObject(app?.avatarOptions, "avatarFileName", cleanPath);
+    setIfObject(app?.avatarOptions, "current", cleanPath);
+    setIfObject(app?.avatarOptions, "imagePath", cleanPath);
+    setIfObject(app?.avatarOptions, "img", cleanPath);
+    setIfObject(app?.avatarOptions, "src", cleanPath);
+
+    if (typeof app === "object" && app) {
+      app.avatarFilename = cleanPath;
+      app.avatarFileName = cleanPath;
+    }
+
+    setIfObject(app?.avatar, "src", cleanPath);
+    setIfObject(app?.avatar, "img", cleanPath);
+    setIfObject(app?.avatar, "path", cleanPath);
+  }
+
+  return cleanPath;
 }
 
 function canBridgeTokenizerForApp(app) {
@@ -2296,7 +2347,7 @@ function patchTokenizerApplication(app) {
 
   if (!app.__hstwUploadPatched) {
     app.updateToken = async function(dataBlob) {
-      if (!this.modifyToken) return;
+      if (!this.modifyToken) return "";
 
       const result = await relayTokenizerUpload({
         actor,
@@ -2305,15 +2356,14 @@ function patchTokenizerApplication(app) {
         blob: dataBlob
       });
 
-      const path = sanitizeSource(result?.path);
+      const path = syncTokenizerUploadState(this, "token", result?.path);
       if (!path) throw new Error("TW_TOKENIZER_RELAY_UPLOAD_FAILED");
 
-      this.tokenOptions.tokenUploadDirectory = this.tokenUploadDirectory;
-      this.tokenOptions.tokenFilename = path;
+      return path;
     };
 
     app.updateAvatar = async function(dataBlob) {
-      if (!this.modifyAvatar) return;
+      if (!this.modifyAvatar) return "";
 
       const result = await relayTokenizerUpload({
         actor,
@@ -2322,11 +2372,10 @@ function patchTokenizerApplication(app) {
         blob: dataBlob
       });
 
-      const path = sanitizeSource(result?.path);
+      const path = syncTokenizerUploadState(this, "avatar", result?.path);
       if (!path) throw new Error("TW_TOKENIZER_RELAY_UPLOAD_FAILED");
 
-      this.tokenOptions.avatarUploadDirectory = this.avatarUploadDirectory;
-      this.tokenOptions.avatarFilename = path;
+      return path;
     };
 
     app.__hstwUploadPatched = true;

@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.9.0
+# Arquitetura — HoloSuite Token Wardrobe v0.9.2
 
 ## Componentes
 
@@ -159,3 +159,26 @@ O antigo `globalAlpha = 0.82` foi removido.
 
 A imagem-base vem de `vtta-tokenizer.default-frame-tint`, cujo default no 5.0.3 é:
 `modules/vtta-tokenizer/img/plain-marble-frame-grey.png`.
+
+
+## Tokenizer bridge state sync
+
+O bridge do Tokenizer não só envia o blob para o relay do GM:
+ele também precisa devolver o path salvo e sincronizar esse path em múltiplos pontos
+porque implementações/integrações do Tokenizer podem ler:
+- `tokenOptions.tokenFilename`;
+- `tokenOptions.avatarFilename`;
+- `avatarOptions.avatarFilename`;
+- propriedades diretas do app.
+
+A função `syncTokenizerUploadState(app, kind, path)` centraliza isso.
+
+
+## Default frame base
+
+A moldura base padrão do Wardrobe agora vem de:
+
+- setting: `vtta-tokenizer.default-frame-neutral`
+- fallback: `modules/vtta-tokenizer/img/default-frame-npc.png`
+
+Isso torna a borda padrão alinhada com a moldura NPC do próprio Tokenizer.
