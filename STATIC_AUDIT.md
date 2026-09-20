@@ -1,53 +1,63 @@
-# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.5.0
+# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.5.1
 
-## Objetivos desta revisão
+## Bugs desta revisão
 
-1. Players devem poder colar URL sem acesso aos arquivos do Foundry.
-2. Players devem poder trocar a imagem do próprio token na cena mesmo sem permissão direta de update no TokenDocument.
-3. O app precisava voltar a ter um atalho para focar o token atual do player na mesa.
-4. A borda não deve usar o pipeline grey/tinted do Tokenizer.
-5. O recorte circular real da v0.4.1 precisa permanecer intacto.
+1. `Token selecionado` não reagia de forma confiável.
+2. `Meu token na cena` não encontrava o Token quando o Actor era Owner mas `actor.isOwner`/TokenDocument update não refletiam isso como esperado.
+3. O frame PC podia continuar grey porque a v0.5.0 respeitava `default-frame-pc` customizado do mundo.
+4. URLs assinadas do Discord podiam ser quebradas pelo cache-busting adicionado pelo Wardrobe.
 
-## Correções aplicadas
+## Correções
 
-PASS — GM relay via `game.socket` para upload final.
-PASS — GM relay via `game.socket` para `texture.src`.
-PASS — validação de ownership do Actor no GM antes de atender relay.
-PASS — players sem `FILES_UPLOAD` continuam podendo preparar URL.
-PASS — botão de browse do Foundry fica oculto para players.
-PASS — botão `Token selecionado`.
-PASS — botão `Meu token na cena`.
-PASS — seleção/descoberta de token não exige mais permissão direta de update.
-PASS — `validateSwitchRequest()` aceita relay GM quando o player não pode modificar o token diretamente.
-PASS — `getTokenizerFrameConfig()` usa `default-frame-pc` / `neutral` / `npc` configurados no mundo.
-PASS — `frame-tint` continua ignorado no Wardrobe.
+PASS — `Token selecionado` usa listener DOM direto.
+PASS — `Meu token na cena` usa listener DOM direto.
+PASS — ownership robusto por `isOwner`, `testUserPermission`, `getUserLevel` e ownership map.
+PASS — seleção do token não depende de `TokenDocument.canUserModify()`.
+PASS — botão controla o token com `token.control({releaseOthers:true})`.
+PASS — botão centraliza a câmera no token quando possível.
+PASS — feedback visual/notificação após seleção.
+PASS — GM relay permanece disponível para troca quando player não pode atualizar TokenDocument.
+PASS — LANCER `pilot/mech` força `modules/vtta-tokenizer/img/default-frame-pc.png`.
+PASS — `default-frame-pc` custom/grey do mundo é ignorado para PC no Wardrobe.
+PASS — pipeline `frame-tint` continua ignorado.
+PASS — URLs remotas não recebem query param extra.
+PASS — URL Discord assinada preservada byte-for-byte.
+PASS — URL direta `i.pinimg.com` preservada.
 PASS — recorte circular real permanece.
-PASS — canto externo continua transparente.
-PASS — preview e exportação continuam usando a mesma função de crop.
+PASS — transparência externa permanece.
 
-## Mocks executados
+## Testes executados
 
-PASS — frame clássico configurado: `custom/brown-ring.png`.
-PASS — readiness via GM relay sem `FILES_UPLOAD`.
-PASS — upload via relay.
-PASS — switch via relay.
-PASS — actor default resolvido mesmo sem `token.document.canUserModify()`.
-PASS — contexto indica `canBrowseFiles=false` para player.
-PASS — contexto indica `relayUpload=true`.
-PASS — contexto indica `canPickCurrentToken=true`.
-PASS — clip circular real.
-PASS — registro HoloSuite playerVisible.
+PASS — Node `--check`.
+PASS — mock `Token selecionado`.
+PASS — mock `Meu token na cena`.
+PASS — mock Actor Owner com `actor.isOwner=false`.
+PASS — mock TokenDocument sem permissão direta de update.
+PASS — mock GM relay de troca.
+PASS — frame PC forçado apesar de world setting apontar para `plain-marble-frame-grey.png`.
+PASS — Discord CDN signed URL.
+PASS — Pinterest direct image URL.
+PASS — circular clip antes de drawImage.
+PASS — raio circular `size/2`.
 
-## Invariantes de segurança
+## Segurança
 
-PASS — nenhuma chamada `Actor.update()`.
-PASS — nenhuma chamada `prototypeToken.update()`.
-PASS — exatamente duas chamadas `token.document.update()` no código:
-- caminho local direto;
-- caminho GM relay.
-PASS — em ambos os casos o payload é exatamente `{"texture.src": cleanSrc}`.
+Existem duas chamadas `token.document.update()`:
+- caminho direto local;
+- executor do GM relay.
 
-## Observação sobre Discord / Pinterest
+Ambas possuem exatamente:
 
-O módulo aceita URL direta do arquivo de imagem.
-Links de página/post/pin ainda podem falhar; para esses casos o usuário deve usar o endereço direto do arquivo ou proxy do Tokenizer.
+```js
+{"texture.src": cleanSrc}
+```
+
+Nenhuma chamada:
+- `Actor.update()`;
+- `prototypeToken.update()`;
+- `autoToken()`.
+
+## Nota de teste visual
+
+Tokens já gerados nas versões anteriores continuam contendo a moldura antiga dentro do próprio WEBP.
+Para verificar a correção do frame, use `Reenquadrar` e salve novamente, ou crie uma nova aparência.

@@ -1,4 +1,4 @@
-# Arquitetura v0.5.0
+# Arquitetura v0.5.1
 
 ## Mudança principal
 
@@ -112,3 +112,28 @@ Mesmo via relay, o módulo continua limitado a:
 - update de `texture.src` do token escolhido.
 
 Não há atualização de Actor, Prototype Token, HP, posição ou automações.
+
+
+## Seleção de token
+
+Os dois atalhos críticos não dependem mais de `data-action`.
+Eles são ligados diretamente em `_onRender()` e:
+- consultam `canvas.tokens.controlled`;
+- validam ownership robusto;
+- gravam `actorId` + `tokenId`;
+- chamam `token.control({releaseOthers:true})`;
+- centralizam a câmera no token.
+
+## Frame PC
+
+Para eliminar diferenças de configuração do mundo, LANCER `pilot/mech` usa sempre
+o asset PC embutido do Tokenizer:
+
+`modules/vtta-tokenizer/img/default-frame-pc.png`
+
+O pipeline `frame-tint` e o `default-frame-pc` custom do mundo não participam dessa escolha.
+
+## URLs assinadas
+
+`loadImage()` não adiciona cache-busting em URLs remotas.
+Isso evita alterar assinaturas/query strings de CDN, especialmente Discord.

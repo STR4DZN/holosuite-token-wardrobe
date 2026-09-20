@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.5.0
+# HoloSuite Token Wardrobe v0.5.1
 
 ## Fluxo atual
 
@@ -128,3 +128,16 @@ Exemplos que tendem a funcionar:
 - `i.pinimg.com/...`
 
 Links de página, como um pin do Pinterest ou post, não são arquivo de imagem direto e podem falhar.
+
+
+## Correções v0.5.1
+
+- `Token selecionado` e `Meu token na cena` usam listeners DOM diretos em vez do action dispatcher;
+- ownership do Actor/token é detectado também por `testUserPermission`, `getUserLevel` e mapa de ownership;
+- `Meu token na cena` controla o token e centraliza a câmera nele para feedback visual imediato;
+- `Token selecionado` usa diretamente `canvas.tokens.controlled`;
+- para `pilot`, `mech`, `character` e `pc`, a moldura é **forçada** para:
+  `modules/vtta-tokenizer/img/default-frame-pc.png`;
+- a configuração world `default-frame-pc` deixa de conseguir substituir a moldura marrom por uma grey/custom;
+- URLs remotas não recebem mais `?hstw=...` extra; isso preserva URLs assinadas do Discord;
+- URLs diretas `i.pinimg.com`, `cdn.discordapp.com` e `media.discordapp.net` continuam aceitas.

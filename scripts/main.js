@@ -343,7 +343,31 @@ function cacheBust(path) {
 function canAccessActor(actor) {
   if (!actor) return false;
   if (isGM()) return true;
-  return actor.isOwner === true;
+  if (actor.isOwner === true) return true;
+
+  const ownerLevel =
+    globalThis.CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER
+    ?? globalThis.CONST?.ENTITY_PERMISSIONS?.OWNER
+    ?? 3;
+
+  try {
+    if (typeof actor.testUserPermission === "function") {
+      return actor.testUserPermission(game.user, ownerLevel);
+    }
+  } catch {}
+
+  try {
+    if (typeof actor.getUserLevel === "function") {
+      return actor.getUserLevel(game.user) >= ownerLevel;
+    }
+  } catch {}
+
+  const userId = game.user?.id;
+  const level = userId
+    ? (actor.ownership?.[userId] ?? actor.permission?.[userId] ?? 0)
+    : 0;
+
+  return Number(level) >= ownerLevel;
 }
 
 function canManageActor(actor) {
@@ -513,27 +537,31 @@ function actorTokensOnCurrentScene(actor) {
   return getAllSceneTokens().filter(token => token.actor?.id === actor.id);
 }
 
+function tokenOwnedByCurrentUser(token) {
+  if (!token?.actor) return false;
+  if (isGM()) return true;
+  if (token.isOwner === true || token.document?.isOwner === true) return true;
+  return actorOwnedByUser(token.actor, game.user?.id);
+}
+
 function currentControlledOwnedToken() {
   return (canvas?.tokens?.controlled ?? [])
-    .find(token => canAccessActor(token.actor)) ?? null;
+    .find(token => tokenOwnedByCurrentUser(token)) ?? null;
 }
 
 function preferredSceneTokenForUser() {
   const controlled = currentControlledOwnedToken();
   if (controlled) return controlled;
 
-  const character = characterActor();
+  const character = game.user?.character ?? null;
   if (character) {
-    const token = actorTokensOnCurrentScene(character).find(item => canAccessActor(item.actor));
-    if (token) return token;
+    const byCharacter = getAllSceneTokens().find(token =>
+      token.actor?.id === character.id && tokenOwnedByCurrentUser(token)
+    );
+    if (byCharacter) return byCharacter;
   }
 
-  for (const actor of ownedActorsWithTokens()) {
-    const token = actorTokensOnCurrentScene(actor).find(item => canAccessActor(item.actor));
-    if (token) return token;
-  }
-
-  return null;
+  return getAllSceneTokens().find(token => tokenOwnedByCurrentUser(token)) ?? null;
 }
 
 function characterActor() {
@@ -664,28 +692,25 @@ function getTokenizerFrameConfig(actor, token) {
   const localUpload = game.user?.can?.("FILES_UPLOAD") === true;
   const relayUpload = canUseGmRelay();
   const canUpload = localUpload || relayUpload;
-  const frameEnabled = active && safeTokenizerSetting("add-frame-default", false) === true;
   const tokenType = getActorTokenType(actor);
   const disposition = Number(token?.document?.disposition ?? actor?.prototypeToken?.disposition ?? 0);
 
-  // Wardrobe always uses the classic configured Tokenizer frame, never the tint pipeline.
+  // The user requested the Tokenizer's bundled classic PC frame, regardless of
+  // a world setting that may point to a grey/custom frame.
   let rawFrame = "";
 
-  if (active && frameEnabled) {
+  if (active) {
     if (tokenType === "pc") {
-      rawFrame = safeTokenizerSetting(
-        "default-frame-pc",
-        safeTokenizerDefault("default-frame-pc", "[data] modules/vtta-tokenizer/img/default-frame-pc.png")
-      );
+      rawFrame = "[data] modules/vtta-tokenizer/img/default-frame-pc.png";
     } else if (disposition === 0 || disposition === 1) {
       rawFrame = safeTokenizerSetting(
         "default-frame-neutral",
-        safeTokenizerDefault("default-frame-neutral", "[data] modules/vtta-tokenizer/img/default-frame-npc.png")
+        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
       );
     } else {
       rawFrame = safeTokenizerSetting(
         "default-frame-npc",
-        safeTokenizerDefault("default-frame-npc", "[data] modules/vtta-tokenizer/img/default-frame-npc.png")
+        "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
       );
     }
   }
@@ -697,12 +722,13 @@ function getTokenizerFrameConfig(actor, token) {
     localUpload,
     relayUpload,
     canUpload,
-    frameEnabled,
+    frameEnabled: active && Boolean(framePath),
     framePath,
     tintFrame: false,
     tintColor: null,
     classicFrame: true,
-    ready: active && canUpload && frameEnabled && Boolean(framePath),
+    forcedBundledPcFrame: tokenType === "pc",
+    ready: active && canUpload && Boolean(framePath),
     version: String(module?.version ?? "")
   };
 }
@@ -726,13 +752,18 @@ function tokenizerProxyUrl(source) {
     : `${proxy}${source}`;
 }
 
-async function loadImage(source, {allowProxy = true} = {}) {
+function buildImageRequestUrl(source, {allowProxy = true} = {}) {
   const clean = sanitizeSource(source);
-  if (!clean || !isSupportedSource(clean)) throw new Error("TW_BAD_IMAGE");
+  if (!clean || !isSupportedSource(clean)) return "";
 
-  const candidate = isRemoteUrl(clean) && allowProxy
+  return isRemoteUrl(clean) && allowProxy
     ? tokenizerProxyUrl(clean)
     : clean;
+}
+
+async function loadImage(source, {allowProxy = true} = {}) {
+  const candidate = buildImageRequestUrl(source, {allowProxy});
+  if (!candidate) throw new Error("TW_BAD_IMAGE");
 
   return await new Promise((resolve, reject) => {
     const image = new Image();
@@ -744,12 +775,9 @@ async function loadImage(source, {allowProxy = true} = {}) {
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error("TW_SOURCE_LOAD_FAILED"));
 
-    if (isRemoteUrl(candidate)) {
-      const separator = candidate.includes("?") ? "&" : "?";
-      image.src = `${candidate}${separator}hstw=${Date.now()}`;
-    } else {
-      image.src = candidate;
-    }
+    // Do NOT append our own query parameter to remote URLs. Discord CDN links
+    // commonly use signed query strings, and changing them can invalidate the URL.
+    image.src = candidate;
   });
 }
 
@@ -1538,8 +1566,6 @@ class TokenWardrobeApp extends BaseApplication {
     actions: {
       prepareUrl: TokenWardrobeApp.#prepareUrl,
       pickFile: TokenWardrobeApp.#pickFile,
-      useSelectedToken: TokenWardrobeApp.#useSelectedToken,
-      useMyToken: TokenWardrobeApp.#useMyToken,
       switchImage: TokenWardrobeApp.#switchImage,
       editCrop: TokenWardrobeApp.#editCrop,
       renameImage: TokenWardrobeApp.#renameImage,
@@ -1681,6 +1707,60 @@ class TokenWardrobeApp extends BaseApplication {
       event.preventDefault();
       root.querySelector('[data-action="prepareUrl"]')?.click();
     });
+
+    root.querySelector('[data-role="use-selected-token"]')?.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const token = currentControlledOwnedToken();
+
+      if (!token?.actor) {
+        notify("warn", "Selecione o seu token na mesa e tente novamente.");
+        return;
+      }
+
+      this.actorId = token.actor.id;
+      this.tokenId = token.id;
+
+      try {
+        token.control?.({releaseOthers: true});
+        if (token.center && canvas?.animatePan) {
+          await canvas.animatePan({x: token.center.x, y: token.center.y, duration: 180});
+        }
+      } catch (error) {
+        console.warn(`${MODULE_TITLE} | Could not focus selected token`, error);
+      }
+
+      notify("info", `Token selecionado: ${token.name || token.actor.name}`);
+      this.render({force: true});
+    });
+
+    root.querySelector('[data-role="use-my-token"]')?.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const token = preferredSceneTokenForUser();
+
+      if (!token?.actor) {
+        notify("warn", "Não encontrei um token seu na cena atual.");
+        return;
+      }
+
+      this.actorId = token.actor.id;
+      this.tokenId = token.id;
+
+      try {
+        token.control?.({releaseOthers: true});
+        if (token.center && canvas?.animatePan) {
+          await canvas.animatePan({x: token.center.x, y: token.center.y, duration: 180});
+        }
+      } catch (error) {
+        console.warn(`${MODULE_TITLE} | Could not focus owned token`, error);
+      }
+
+      notify("info", `Usando: ${token.name || token.actor.name}`);
+      this.render({force: true});
+    });
   }
 
   async close(options = {}) {
@@ -1691,7 +1771,16 @@ class TokenWardrobeApp extends BaseApplication {
   static async #prepareUrl() {
     const actor = this.actor;
     const token = actor ? resolveToken(actor, this.tokenId) : null;
-    if (!actor || !token || !canManageActor(actor)) return;
+
+    if (!actor || !token) {
+      notify("warn", "Primeiro escolha seu token com “Token selecionado” ou “Meu token na cena”.");
+      return;
+    }
+
+    if (!canManageActor(actor)) {
+      notify("error", "Você não tem ownership desse personagem.");
+      return;
+    }
 
     const input = this.element?.querySelector?.('[data-role="url-input"]');
     const source = sanitizeSource(input?.value);
@@ -1720,30 +1809,6 @@ class TokenWardrobeApp extends BaseApplication {
     }
   }
 
-
-  static async #useSelectedToken() {
-    const token = currentControlledOwnedToken();
-    if (!token?.actor) {
-      notify("warn", "Selecione um token seu na mesa primeiro.");
-      return;
-    }
-
-    this.actorId = token.actor.id;
-    this.tokenId = token.id;
-    this.render({force: true});
-  }
-
-  static async #useMyToken() {
-    const token = preferredSceneTokenForUser();
-    if (!token?.actor) {
-      notify("warn", "Não encontrei um token seu na cena atual.");
-      return;
-    }
-
-    this.actorId = token.actor.id;
-    this.tokenId = token.id;
-    this.render({force: true});
-  }
 
   static async #switchImage(event, target) {
     if (target?.disabled) return;
