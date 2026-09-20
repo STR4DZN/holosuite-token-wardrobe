@@ -1,70 +1,60 @@
-# Arquitetura / Auditoria — v0.3.0
+# Arquitetura v0.4.0
 
-## Integração Tokenizer
+## Mudança principal
 
-API pública usada:
+`autoToken()` foi removido integralmente.
 
-```js
-game.modules.get("vtta-tokenizer").api.autoToken(actor, {
-  tokenFilename: source,
-  updateActor: false,
-  isWildCard: false,
-  nameSuffix,
-  disposition
-})
+Motivo: o Tokenizer possui seu próprio pipeline de Layer/crop/offset. Mesmo com `updateActor:false`,
+isso podia modificar visualmente o enquadramento escolhido antes de gerar o arquivo.
+
+A v0.4 trata Tokenizer como provedor de **moldura + configuração de armazenamento**.
+
+## Pipeline
+
+1. `source` é carregado.
+2. O usuário controla zoom e pan num canvas quadrado.
+3. A moldura real configurada no Tokenizer é carregada como overlay.
+4. Ao confirmar, o módulo renderiza:
+   - imagem enquadrada;
+   - frame do Tokenizer.
+5. Canvas é exportado para WEBP.
+6. `FilePicker.upload()` grava no diretório de upload configurado pelo Tokenizer.
+7. A galeria recebe o novo `src`.
+8. A troca no mapa atualiza somente `texture.src`.
+
+## Crop math
+
+`baseScale = max(canvas / imageWidth, canvas / imageHeight)`.
+
+Zoom mínimo = `1`, garantindo cobertura total do quadrado.
+
+Pan é limitado por:
+
+```text
+maxX = (drawWidth  - canvasSize) / 2
+maxY = (drawHeight - canvasSize) / 2
 ```
 
-O código do Tokenizer mostra que `autoToken` gera o View internamente, inicializa a imagem,
-adiciona as camadas padrão, gera blob e faz upload. `updateActor` só é executado quando
-`mergedOptions.updateActor` é verdadeiro. Nosso adapter passa `false`.
+Logo não é possível arrastar até expor áreas vazias do canvas.
 
-## Por que não usamos autoToken(actor) puro
+## Preview
 
-O fluxo padrão do Tokenizer pode atualizar:
-- Actor portrait;
-- Prototype Token;
-- Tokens ativos;
-- Dynamic Ring;
-- escala, dependendo das configurações.
+O preview usa:
+- imagem real;
+- área circular segura;
+- frame real Tokenizer;
+- tint do frame, quando Tokenizer usa frame-tint.
 
-Isso não serve para este módulo. A integração usa somente composição/upload e depois o Wardrobe
-aplica o arquivo final com seu próprio update restrito a `texture.src`.
+## Responsive
 
-## Origem versus resultado
+A shell usa layout flex:
+- header fixo;
+- conteúdo `min-height:0; overflow-y:auto`;
+- footer do cropper fixo.
 
-`source` nunca é perdido.
-`src` é a arte pronta para o Canvas.
+Isso corrige o problema anterior em telas pequenas onde o conteúdo era cortado sem possibilidade de scroll.
 
-Isso permite trocar borda/enquadramento e reprocessar sem precisar recuperar a imagem original.
+## LANCER
 
-## Enquadramento
-
-O Tokenizer centraliza a imagem no Layer durante `Layer.fromImage`. A configuração
-`default-crop-image` escolhe entre enquadramento que contém a imagem e crop para preencher.
-Quando uma borda é adicionada, `default-token-offset` é aplicado e auto-escalado pelo Tokenizer.
-
-## CORS / URL
-
-Para URL remota, o Wardrobe faz preflight compatível com o comportamento público do Tokenizer
-e respeita as configurações `proxy` e `force-proxy`. Se falhar, a entrada não é criada.
-
-## Locks
-
-- troca de token: lock por token;
-- processamento Tokenizer: lock por Actor.
-
-Isso evita duas composições/uploads concorrentes disputarem o mesmo contexto.
-
-## Invariante
-
-Existe uma única chamada `token.document.update` no módulo e o payload é somente:
-
-```js
-{"texture.src": cleanSrc}
-```
-
-## Ajuste sem abrir Tokenizer
-
-O setting `vtta-tokenizer.default-token-offset` é player-scoped no Tokenizer.
-O Wardrobe oferece **Ajustar recuo** e grava nesse mesmo setting. Assim cada usuário pode
-afinar a entrada da imagem na borda sem abrir a aplicação do Tokenizer.
+O adapter não replica cegamente a classificação genérica do Tokenizer:
+`pilot` e `mech` são tratados como PC, evitando selecionar a moldura/diretório NPC no sistema LANCER.

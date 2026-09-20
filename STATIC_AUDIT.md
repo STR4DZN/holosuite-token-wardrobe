@@ -1,54 +1,65 @@
-# AUDITORIA v0.3.0 — Tokenizer + URL
+# AUDITORIA FINAL — HoloSuite Token Wardrobe v0.4.0
 
-## Resultado automatizado
+## Resultado
 
-PASS — JavaScript `node --check`.
-PASS — mock HoloSuite registration.
-PASS — mock Tokenizer 5.0.3 API integration.
-PASS — URL source preserved separately from generated token.
-PASS — Tokenizer receives `updateActor: false`.
-PASS — Tokenizer receives the selected URL/file through `tokenFilename`.
-PASS — mock Actor received zero `Actor.update()` calls.
-PASS — source contains zero `actor.update()` calls.
-PASS — exactly one `token.document.update()` exists.
-PASS — its payload is exactly `{"texture.src": cleanSrc}`.
-PASS — generated Tokenizer output is used as the gallery `src`.
-PASS — remote CORS failure prevents gallery creation.
-PASS — missing FILES_UPLOAD prevents automatic processing.
-PASS — required frame disabled prevents automatic processing.
-PASS — raw URL mode works when automatic Tokenizer is disabled.
-PASS — unauthorized Actor gallery remains inaccessible.
-PASS — unauthorized Token cannot be changed.
-PASS — v0.2.1 schema migrates to schema v2.
-PASS — reprocessing uses the original `source`.
-PASS — HoloSuite Core remains required.
-PASS — Tokenizer is declared as a recommended module.
-PASS — GM can enable Tokenizer default frame from Wardrobe.
-PASS — GM can toggle contain/fill crop behavior from Wardrobe.
-PASS — user can adjust Tokenizer player-scoped offset from Wardrobe.
-PASS — dangerous URL schemes remain blocked.
+PASS — `node --check`.
+PASS — registro HoloSuite mockado.
+PASS — `playerVisible: true`.
+PASS — seleção de frame Tokenizer PC.
+PASS — seleção de frame tintado.
+PASS — suporte explícito LANCER `pilot` e `mech` como PC.
+PASS — diretório de upload Tokenizer PC.
+PASS — parser de diretório `[data]`.
+PASS — parser de diretório `[s3:bucket]`.
+PASS — matemática de cover para imagem horizontal.
+PASS — matemática de cover para imagem vertical.
+PASS — pan limitado para nunca revelar vazio.
+PASS — zoom limitado de 100% a 600%.
+PASS — URL Discord-like preservada.
+PASS — `javascript:` bloqueado.
+PASS — traversal `../` bloqueado.
+PASS — traversal URL-encoded bloqueado.
+PASS — migração schema v2 -> v3.
+PASS — crop default aplicado a entrada legada.
+PASS — galeria de Actor não autorizado permanece invisível.
+PASS — troca de Token não autorizado falha.
+PASS — exatamente um `token.document.update()` existe.
+PASS — payload final é exatamente `{"texture.src": cleanSrc}`.
+PASS — nenhuma chamada `Actor.update()`.
+PASS — nenhuma chamada `prototypeToken.update()`.
+PASS — nenhuma chamada `autoToken()`.
+PASS — nenhum uso de `default-crop-image`.
+PASS — nenhum uso de `default-token-offset`.
+PASS — moldura vem das configurações do Tokenizer.
+PASS — upload usa diretório do Tokenizer.
+PASS — URL é inserida diretamente no app.
+PASS — editor possui drag manual.
+PASS — editor possui zoom manual.
+PASS — editor possui Resetar.
+PASS — editor possui Reenquadrar.
+PASS — app principal possui rolagem vertical.
+PASS — editor possui rolagem vertical.
+PASS — height chain usa `min-height:0` + flex.
+PASS — limites responsivos por `vw`/`vh`.
+PASS — layout reduzido em telas pequenas.
+PASS — footer do editor fica separado da área rolável.
 
-## Segurança de estado
+## Mudança arquitetural decisiva
 
-O Wardrobe não chama:
-- `Actor.update()`;
-- `prototypeToken.update()`;
-- update de Dynamic Ring;
-- update de escala, visão, posição, condição ou automação.
+A v0.4.0 não chama mais `vtta-tokenizer.api.autoToken()`.
 
-O Tokenizer é invocado como processador com `updateActor:false`.
+O Tokenizer agora serve como fonte das configurações visuais:
+- frame PC/NPC;
+- frame tintado e tint;
+- diretório de upload;
+- tamanho de saída;
+- proxy de URL.
 
-## Dependência externa
+O enquadramento é 100% controlado pelo usuário.
 
-O comportamento automático foi construído contra a API pública atual do módulo
-`vtta-tokenizer`, especialmente `api.autoToken(actor, options)`.
+## Validação que ainda depende do Foundry real
 
-## Validação ainda necessária no mundo real
-
-1. Foundry VTT 13.351 real.
-2. HoloSuite real.
-3. Tokenizer real com a borda que o grupo usa.
-4. Player real com FILES_UPLOAD.
-5. Uma URL com CORS permitido.
-6. Uma URL sem CORS para confirmar a mensagem de erro.
-7. LANCER + Lancer Automations após troca de arte.
+- confirmar visualmente a moldura customizada específica do seu Tokenizer;
+- confirmar CORS de links reais do Discord/Pinterest usados na mesa;
+- confirmar upload no hosting real;
+- validar interação final com LANCER Automations no mundo.

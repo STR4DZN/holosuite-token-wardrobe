@@ -4,18 +4,14 @@ const MODULE_TITLE = "HoloSuite Token Wardrobe";
 const TOKENIZER_ID = "vtta-tokenizer";
 
 const FLAG_KEY = "state";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SETTING_PLAYER_MANAGE = "playerCanManage";
 const SETTING_AUTO_CLOSE = "autoCloseAfterSwitch";
 const SETTING_MAX_IMAGES = "maxImages";
-const SETTING_AUTO_TOKENIZER = "autoTokenizer";
-const SETTING_REQUIRE_TOKENIZER_FRAME = "requireTokenizerFrame";
-const SETTING_RAW_FALLBACK = "rawFallbackOnTokenizerFailure";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "avif"]);
 const switchLocks = new Map();
-const processingLocks = new Map();
 
 let appInstance = null;
 let registeredWithHoloSuite = false;
@@ -46,7 +42,6 @@ function sanitizeSource(source) {
 
   if (/^(?:javascript|data|vbscript|file|blob):/i.test(value)) return "";
   if (/[\u0000-\u001F\u007F]/u.test(value)) return "";
-
   if (hasExternalScheme(value) && !isRemoteUrl(value)) return "";
 
   if (!isRemoteUrl(value)) {
@@ -70,6 +65,42 @@ function isSupportedSource(source) {
   if (!clean) return false;
   if (isRemoteUrl(clean)) return true;
   return IMAGE_EXTENSIONS.has(getExtension(clean));
+}
+
+function stripDirectoryPrefix(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^\[([^\]]+)\]\s*(.*)$/);
+  return match ? match[2] : raw;
+}
+
+function parseDirectorySetting(value) {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^\[([^\]]+)\]\s*(.*)$/);
+
+  if (!match) {
+    return {
+      source: "data",
+      current: raw.replace(/^\/+/, ""),
+      bucket: null
+    };
+  }
+
+  const descriptor = match[1];
+  const current = match[2].replace(/^\/+/, "");
+
+  if (descriptor.startsWith("s3:")) {
+    return {
+      source: "s3",
+      current,
+      bucket: descriptor.slice(3) || null
+    };
+  }
+
+  return {
+    source: descriptor || "data",
+    current,
+    bucket: null
+  };
 }
 
 function cacheBust(path) {
@@ -105,18 +136,35 @@ function canModifyTokenImage(token, targetSrc = token?.document?.texture?.src) {
   return token.isOwner === true || token.document.isOwner === true;
 }
 
+function defaultCrop() {
+  return {
+    zoom: 1,
+    panX: 0,
+    panY: 0
+  };
+}
+
+function normalizeCrop(crop) {
+  const zoom = Number(crop?.zoom);
+  const panX = Number(crop?.panX);
+  const panY = Number(crop?.panY);
+
+  return {
+    zoom: Number.isFinite(zoom) ? Math.min(6, Math.max(1, zoom)) : 1,
+    panX: Number.isFinite(panX) ? panX : 0,
+    panY: Number.isFinite(panY) ? panY : 0
+  };
+}
+
 function defaultState() {
   return {schemaVersion: SCHEMA_VERSION, gallery: []};
 }
 
 function normalizeEntry(entry, index = 0) {
-  const legacySrc = sanitizeSource(entry?.src);
-  const source = sanitizeSource(entry?.source || legacySrc);
-  const src = sanitizeSource(legacySrc || source);
+  const source = sanitizeSource(entry?.source || entry?.src);
+  const src = sanitizeSource(entry?.src || source);
 
   if (!source || !src || !isSupportedSource(source) || !isSupportedSource(src)) return null;
-
-  const processor = entry?.processor === "tokenizer" ? "tokenizer" : "raw";
 
   return {
     id: String(entry?.id || foundry.utils.randomID(16)),
@@ -125,9 +173,9 @@ function normalizeEntry(entry, index = 0) {
     src,
     favorite: entry?.favorite === true,
     order: Number.isFinite(Number(entry?.order)) ? Number(entry.order) : index,
-    processor,
+    processor: entry?.processor === "frame" ? "frame" : "raw",
     processedAt: Number.isFinite(Number(entry?.processedAt)) ? Number(entry.processedAt) : null,
-    processorVersion: String(entry?.processorVersion ?? "").trim()
+    crop: normalizeCrop(entry?.crop)
   };
 }
 
@@ -162,8 +210,7 @@ function getGallery(actor, {requireAccess = true} = {}) {
     return [];
   }
 
-  const state = getRawState(actor);
-  const normalized = state.gallery
+  const normalized = getRawState(actor).gallery
     .map((entry, index) => normalizeEntry(entry, index))
     .filter(Boolean);
 
@@ -185,7 +232,7 @@ async function migrateActorState(actor) {
     normalized.some((entry, index) =>
       !raw.gallery[index]?.id ||
       !raw.gallery[index]?.source ||
-      !raw.gallery[index]?.processor
+      !raw.gallery[index]?.crop
     );
 
   if (!needsMigration) return false;
@@ -341,101 +388,106 @@ function safeTokenizerSetting(key, fallback = null) {
   }
 }
 
-function getTokenizerStatus() {
+function getActorTokenType(actor) {
+  const type = String(actor?.type ?? "").toLowerCase();
+
+  // Explicit LANCER support: both Pilot and Mech are player-character actor types.
+  if (["character", "pc", "pilot", "mech"].includes(type)) {
+    if (foundry.utils.getProperty?.(actor, "system.subtype.type") === "npc") return "npc";
+    return "pc";
+  }
+
+  return "npc";
+}
+
+function getTokenizerFrameConfig(actor, token) {
   const module = game.modules.get(TOKENIZER_ID);
-  const api = module?.active ? module.api : null;
-  const available = Boolean(module?.active && typeof api?.autoToken === "function");
+  const active = Boolean(module?.active);
   const canUpload = game.user?.can?.("FILES_UPLOAD") === true;
-  const frameEnabled = available ? safeTokenizerSetting("add-frame-default", false) === true : false;
-  const cropEnabled = available ? safeTokenizerSetting("default-crop-image", false) === true : false;
-  const offset = available ? Number(safeTokenizerSetting("default-token-offset", -35)) : null;
-  const autoEnabled = game.settings.get(MODULE_ID, SETTING_AUTO_TOKENIZER) === true;
-  const requireFrame = game.settings.get(MODULE_ID, SETTING_REQUIRE_TOKENIZER_FRAME) === true;
+  const frameEnabled = active && safeTokenizerSetting("add-frame-default", false) === true;
+  const tintFrame = active && safeTokenizerSetting("frame-tint", false) === true;
+  const tokenType = getActorTokenType(actor);
+  const disposition = Number(token?.document?.disposition ?? actor?.prototypeToken?.disposition ?? 0);
 
-  let state = "off";
-  let label = "Desativado";
+  let rawFrame = "";
+  let tintColor = null;
 
-  if (autoEnabled) {
-    if (!available) {
-      state = "error";
-      label = "Tokenizer não disponível";
-    } else if (!canUpload) {
-      state = "error";
-      label = "Sem permissão de upload";
-    } else if (requireFrame && !frameEnabled) {
-      state = "warn";
-      label = "Borda automática desativada";
+  if (active && frameEnabled) {
+    if (tintFrame) {
+      rawFrame = safeTokenizerSetting("default-frame-tint", "");
+
+      if (tokenType === "pc") {
+        tintColor = safeTokenizerSetting("default-frame-tint-pc", null);
+      } else if (disposition === 1) {
+        tintColor = safeTokenizerSetting("default-frame-tint-friendly", null);
+      } else if (disposition === 0) {
+        tintColor = safeTokenizerSetting("default-frame-tint-neutral", null);
+      } else {
+        tintColor = safeTokenizerSetting("default-frame-tint-hostile", null);
+      }
+    } else if (tokenType === "pc") {
+      rawFrame = safeTokenizerSetting("default-frame-pc", "");
+    } else if (disposition === 0 || disposition === 1) {
+      rawFrame = safeTokenizerSetting("default-frame-neutral", "");
     } else {
-      state = "ok";
-      label = "Conectado";
+      rawFrame = safeTokenizerSetting("default-frame-npc", "");
     }
   }
 
+  const framePath = sanitizeSource(stripDirectoryPrefix(rawFrame));
+
   return {
-    active: Boolean(module?.active),
-    available,
+    active,
     canUpload,
     frameEnabled,
-    cropEnabled,
-    offset,
-    autoEnabled,
-    requireFrame,
-    ready: autoEnabled && available && canUpload && (!requireFrame || frameEnabled),
-    state,
-    label,
+    framePath,
+    tintFrame,
+    tintColor: tintColor ? String(tintColor) : null,
+    ready: active && canUpload && frameEnabled && Boolean(framePath),
     version: String(module?.version ?? "")
   };
 }
 
-function tokenizerShouldProxy(source) {
+function tokenizerProxyUrl(source) {
   const lower = String(source ?? "").toLowerCase();
-
-  if (
+  const forceProxy = safeTokenizerSetting("force-proxy", false) === true;
+  const knownProxySite =
     lower.startsWith("https://www.dndbeyond.com/") ||
     lower.startsWith("https://dndbeyond.com/") ||
     lower.startsWith("https://media-waterdeep.cursecdn.com/") ||
-    lower.startsWith("https://images.dndbeyond.com")
-  ) return true;
+    lower.startsWith("https://images.dndbeyond.com");
 
-  return safeTokenizerSetting("force-proxy", false) === true && isRemoteUrl(source);
-}
+  if (!forceProxy && !knownProxySite) return source;
 
-function tokenizerProxyUrl(source) {
   const proxy = String(safeTokenizerSetting("proxy", "") ?? "").trim();
-  if (!proxy || !tokenizerShouldProxy(source)) return source;
+  if (!proxy) return source;
 
   return proxy.includes("%URL%")
     ? proxy.replace("%URL%", encodeURIComponent(source))
     : `${proxy}${source}`;
 }
 
-async function preloadSource(source, {tokenizerCompatible = false} = {}) {
+async function loadImage(source, {allowProxy = true} = {}) {
   const clean = sanitizeSource(source);
-  if (!clean || !isSupportedSource(clean)) return false;
+  if (!clean || !isSupportedSource(clean)) throw new Error("TW_BAD_IMAGE");
 
-  if (!isRemoteUrl(clean)) {
-    try {
-      const loader = globalThis.TextureLoader?.loader ?? foundry?.canvas?.TextureLoader?.loader;
-      if (loader?.loadTexture) {
-        return Boolean(await loader.loadTexture(clean));
-      }
-    } catch (error) {
-      console.warn(`${MODULE_TITLE} | Local texture preload failed`, clean, error);
-      return false;
-    }
-  }
+  const candidate = isRemoteUrl(clean) && allowProxy
+    ? tokenizerProxyUrl(clean)
+    : clean;
 
-  const candidate = tokenizerCompatible ? tokenizerProxyUrl(clean) : clean;
-
-  return await new Promise(resolve => {
+  return await new Promise((resolve, reject) => {
     const image = new Image();
-    if (tokenizerCompatible) image.crossOrigin = "";
-    image.onload = () => resolve(true);
-    image.onerror = () => resolve(false);
 
-    if (tokenizerCompatible) {
-      const base = String(candidate).split("?")[0];
-      image.src = `${base}?${Date.now()}`;
+    if (isRemoteUrl(candidate)) {
+      image.crossOrigin = "anonymous";
+    }
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("TW_SOURCE_LOAD_FAILED"));
+
+    if (isRemoteUrl(candidate)) {
+      const separator = candidate.includes("?") ? "&" : "?";
+      image.src = `${candidate}${separator}hstw=${Date.now()}`;
     } else {
       image.src = candidate;
     }
@@ -456,7 +508,169 @@ async function preloadFinalTexture(src) {
     return false;
   }
 
-  return preloadSource(clean);
+  try {
+    await loadImage(clean, {allowProxy: false});
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function computeBaseScale(imageWidth, imageHeight, canvasSize) {
+  if (!imageWidth || !imageHeight || !canvasSize) return 1;
+  return Math.max(canvasSize / imageWidth, canvasSize / imageHeight);
+}
+
+function clampPan({imageWidth, imageHeight, canvasSize, zoom, panX, panY}) {
+  const base = computeBaseScale(imageWidth, imageHeight, canvasSize);
+  const scale = base * Math.max(1, zoom);
+  const drawWidth = imageWidth * scale;
+  const drawHeight = imageHeight * scale;
+
+  const maxX = Math.max(0, (drawWidth - canvasSize) / 2);
+  const maxY = Math.max(0, (drawHeight - canvasSize) / 2);
+
+  return {
+    panX: Math.min(maxX, Math.max(-maxX, panX)),
+    panY: Math.min(maxY, Math.max(-maxY, panY))
+  };
+}
+
+function calculateDrawRect(imageWidth, imageHeight, canvasSize, crop) {
+  const normalized = normalizeCrop(crop);
+  const base = computeBaseScale(imageWidth, imageHeight, canvasSize);
+  const scale = base * normalized.zoom;
+  const drawWidth = imageWidth * scale;
+  const drawHeight = imageHeight * scale;
+  const bounded = clampPan({
+    imageWidth,
+    imageHeight,
+    canvasSize,
+    zoom: normalized.zoom,
+    panX: normalized.panX,
+    panY: normalized.panY
+  });
+
+  return {
+    x: (canvasSize - drawWidth) / 2 + bounded.panX,
+    y: (canvasSize - drawHeight) / 2 + bounded.panY,
+    width: drawWidth,
+    height: drawHeight,
+    crop: {
+      zoom: normalized.zoom,
+      panX: bounded.panX,
+      panY: bounded.panY
+    }
+  };
+}
+
+function hexToRgba(hex) {
+  const value = String(hex ?? "").trim();
+  const match = value.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+  if (!match) return null;
+
+  const raw = match[1];
+  return {
+    r: parseInt(raw.slice(0, 2), 16),
+    g: parseInt(raw.slice(2, 4), 16),
+    b: parseInt(raw.slice(4, 6), 16),
+    a: match[2] ? parseInt(match[2], 16) / 255 : 1
+  };
+}
+
+function drawFrame(ctx, frameImage, size, tintColor = null) {
+  if (!frameImage) return;
+
+  if (!tintColor) {
+    ctx.drawImage(frameImage, 0, 0, size, size);
+    return;
+  }
+
+  const rgba = hexToRgba(tintColor);
+  if (!rgba) {
+    ctx.drawImage(frameImage, 0, 0, size, size);
+    return;
+  }
+
+  const temp = document.createElement("canvas");
+  temp.width = size;
+  temp.height = size;
+  const tctx = temp.getContext("2d");
+
+  tctx.drawImage(frameImage, 0, 0, size, size);
+  tctx.globalCompositeOperation = "source-in";
+  tctx.fillStyle = `rgba(${rgba.r},${rgba.g},${rgba.b},${rgba.a})`;
+  tctx.fillRect(0, 0, size, size);
+  tctx.globalCompositeOperation = "source-over";
+
+  ctx.drawImage(temp, 0, 0);
+}
+
+async function canvasToBlob(canvas, type = "image/webp", quality = 0.92) {
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      blob => blob ? resolve(blob) : reject(new Error("TW_CANVAS_EXPORT_FAILED")),
+      type,
+      quality
+    );
+  });
+}
+
+function slugify(value) {
+  return String(value ?? "token")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "token";
+}
+
+function getUploadDirectory(actor) {
+  const tokenType = getActorTokenType(actor);
+  const setting = tokenType === "pc"
+    ? safeTokenizerSetting("image-upload-directory", "")
+    : safeTokenizerSetting("npc-image-upload-directory", "");
+
+  const parsed = parseDirectorySetting(setting);
+
+  if (!parsed.current) {
+    throw new Error("TW_UPLOAD_DIRECTORY_MISSING");
+  }
+
+  return parsed;
+}
+
+async function uploadRenderedToken(actor, blob, entryId) {
+  if (!game.user?.can?.("FILES_UPLOAD")) {
+    throw new Error("TW_UPLOAD_PERMISSION");
+  }
+
+  const FilePickerClass = foundry?.applications?.apps?.FilePicker?.implementation
+    ?? globalThis.FilePicker;
+
+  if (!FilePickerClass?.upload) {
+    throw new Error("TW_FILE_PICKER_UNAVAILABLE");
+  }
+
+  const directory = getUploadDirectory(actor);
+  const filename = `${slugify(actor.name)}.Wardrobe-${entryId}-${Date.now()}.webp`;
+  const file = new File([blob], filename, {type: "image/webp"});
+
+  const options = {};
+  if (directory.bucket) options.bucket = directory.bucket;
+
+  const result = await FilePickerClass.upload(
+    directory.source,
+    directory.current,
+    file,
+    options,
+    {notify: false}
+  );
+
+  const path = sanitizeSource(result?.path);
+  if (!path) throw new Error("TW_UPLOAD_FAILED");
+
+  return cacheBust(path);
 }
 
 async function withTokenLock(tokenId, task) {
@@ -477,27 +691,6 @@ async function withTokenLock(tokenId, task) {
   } finally {
     releaseCurrent();
     if (switchLocks.get(tokenId) === queued) switchLocks.delete(tokenId);
-  }
-}
-
-async function withProcessingLock(actorId, task) {
-  const previous = processingLocks.get(actorId) ?? Promise.resolve();
-
-  let releaseCurrent;
-  const current = new Promise(resolve => {
-    releaseCurrent = resolve;
-  });
-
-  const queued = previous.then(() => current);
-  processingLocks.set(actorId, queued);
-
-  await previous;
-
-  try {
-    return await task();
-  } finally {
-    releaseCurrent();
-    if (processingLocks.get(actorId) === queued) processingLocks.delete(actorId);
   }
 }
 
@@ -541,7 +734,7 @@ async function switchImage({actorId, tokenId, src}) {
 
     if (token.document.texture?.src === cleanSrc) return token;
 
-    // Safety invariant: this is the ONLY TokenDocument mutation performed by the module.
+    // Safety invariant: this remains the ONLY TokenDocument mutation in the module.
     await token.document.update({"texture.src": cleanSrc});
 
     Hooks.callAll(`${MODULE_ID}.imageChanged`, {
@@ -573,155 +766,43 @@ function displayNameFromSource(source) {
   }
 }
 
-async function autoTokenizeSource(actor, token, source, entryId) {
-  const status = getTokenizerStatus();
+async function upsertProcessedEntry(actor, {
+  entryId = "",
+  name = "",
+  source,
+  src,
+  crop
+}) {
+  if (!actor || !canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
 
-  if (!status.available) throw new Error("TW_TOKENIZER_UNAVAILABLE");
-  if (!status.canUpload) throw new Error("TW_TOKENIZER_UPLOAD_PERMISSION");
-  if (status.requireFrame && !status.frameEnabled) {
-    throw new Error("TW_TOKENIZER_FRAME_DISABLED");
-  }
+  const gallery = getGallery(actor);
+  const id = entryId || foundry.utils.randomID(16);
+  const normalizedName = String(name || displayNameFromSource(source)).trim().slice(0, 80);
 
-  const cleanSource = sanitizeSource(source);
-  if (!cleanSource || !isSupportedSource(cleanSource)) throw new Error("TW_BAD_IMAGE");
+  const existing = gallery.find(entry => entry.id === id);
 
-  // Tokenizer intentionally requires CORS-compatible remote images. Preflight using
-  // the same proxy settings and cross-origin behavior so a failed URL never turns
-  // into Tokenizer's fallback mystery-man token.
-  if (!(await preloadSource(cleanSource, {tokenizerCompatible: true}))) {
-    throw new Error("TW_SOURCE_LOAD_FAILED");
-  }
-
-  const tokenizer = game.modules.get(TOKENIZER_ID)?.api;
-  const nameSuffix = `.hstw-${String(entryId).replace(/[^a-zA-Z0-9_-]/g, "")}`;
-
-  const processed = await withProcessingLock(actor.id, async () => {
-    return tokenizer.autoToken(actor, {
-      tokenFilename: cleanSource,
-      updateActor: false,
-      isWildCard: false,
-      nameSuffix,
-      disposition: token?.document?.disposition ?? actor.prototypeToken?.disposition ?? 0
+  if (existing) {
+    existing.name = normalizedName;
+    existing.source = source;
+    existing.src = src;
+    existing.processor = "frame";
+    existing.processedAt = Date.now();
+    existing.crop = normalizeCrop(crop);
+  } else {
+    gallery.push({
+      id,
+      name: normalizedName,
+      source,
+      src,
+      favorite: false,
+      order: gallery.length,
+      processor: "frame",
+      processedAt: Date.now(),
+      crop: normalizeCrop(crop)
     });
-  });
-
-  const outputPath = sanitizeSource(processed);
-  if (!outputPath || isRemoteUrl(outputPath)) throw new Error("TW_TOKENIZER_BAD_OUTPUT");
-
-  const finalPath = cacheBust(outputPath);
-  if (!(await preloadFinalTexture(finalPath))) {
-    throw new Error("TW_TOKENIZER_OUTPUT_LOAD_FAILED");
   }
 
-  return {
-    src: finalPath,
-    processor: "tokenizer",
-    processedAt: Date.now(),
-    processorVersion: status.version
-  };
-}
-
-async function processSource(actor, token, source, entryId, {forceTokenizer = false, forceRaw = false} = {}) {
-  const clean = sanitizeSource(source);
-  if (!clean || !isSupportedSource(clean)) throw new Error("TW_BAD_IMAGE");
-
-  const autoTokenizer = game.settings.get(MODULE_ID, SETTING_AUTO_TOKENIZER) === true;
-  const shouldTokenize = !forceRaw && (forceTokenizer || autoTokenizer);
-
-  if (shouldTokenize) {
-    try {
-      return await autoTokenizeSource(actor, token, clean, entryId);
-    } catch (error) {
-      const rawFallback = game.settings.get(MODULE_ID, SETTING_RAW_FALLBACK) === true;
-      if (!rawFallback || forceTokenizer) throw error;
-
-      console.warn(`${MODULE_TITLE} | Tokenizer processing failed; using raw source`, error);
-      notify("warn", "Tokenizer falhou; a imagem original será usada sem borda.");
-    }
-  }
-
-  if (!(await preloadSource(clean))) throw new Error("TW_SOURCE_LOAD_FAILED");
-
-  return {
-    src: clean,
-    processor: "raw",
-    processedAt: null,
-    processorVersion: ""
-  };
-}
-
-async function addSources(actor, token, sources, {forceRaw = false} = {}) {
-  if (!canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
-
-  const gallery = getGallery(actor);
-  const knownSources = new Set(gallery.map(entry => entry.source));
-  const maxImages = Math.min(
-    100,
-    Math.max(1, Number(game.settings.get(MODULE_ID, SETTING_MAX_IMAGES) || 60))
-  );
-
-  const failures = [];
-  let added = 0;
-
-  for (const item of sources) {
-    if (gallery.length >= maxImages) break;
-
-    const source = sanitizeSource(typeof item === "string" ? item : item?.source);
-    if (!source || knownSources.has(source) || !isSupportedSource(source)) continue;
-
-    const id = foundry.utils.randomID(16);
-    const name = String(
-      (typeof item === "object" && item?.name) || displayNameFromSource(source)
-    ).trim().slice(0, 80);
-
-    try {
-      const processed = await processSource(actor, token, source, id, {forceRaw});
-
-      knownSources.add(source);
-      gallery.push({
-        id,
-        name,
-        source,
-        src: processed.src,
-        favorite: false,
-        order: gallery.length,
-        processor: processed.processor,
-        processedAt: processed.processedAt,
-        processorVersion: processed.processorVersion
-      });
-      added++;
-    } catch (error) {
-      failures.push({source, error});
-      console.error(`${MODULE_TITLE} | Could not add source`, source, error);
-    }
-  }
-
-  const saved = await saveGallery(actor, gallery);
-  return {gallery: saved, added, failures};
-}
-
-async function reprocessEntry(actor, token, entryId) {
-  if (!canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
-
-  const gallery = getGallery(actor);
-  const entry = gallery.find(item => item.id === entryId);
-  if (!entry) throw new Error("TW_ENTRY_NOT_FOUND");
-
-  const processed = await processSource(
-    actor,
-    token,
-    entry.source,
-    entry.id,
-    {forceTokenizer: true}
-  );
-
-  entry.src = processed.src;
-  entry.processor = processed.processor;
-  entry.processedAt = processed.processedAt;
-  entry.processorVersion = processed.processorVersion;
-
-  await saveGallery(actor, gallery);
-  return entry;
+  return saveGallery(actor, gallery);
 }
 
 function getFilePickerClass() {
@@ -743,33 +824,7 @@ async function pickSingleImage() {
   });
 }
 
-async function browseFolder() {
-  const FilePickerClass = getFilePickerClass();
-  if (!FilePickerClass) throw new Error("TW_FILE_PICKER_UNAVAILABLE");
-
-  return await new Promise(resolve => {
-    const picker = new FilePickerClass({
-      type: "folder",
-      callback: async (path, fp) => {
-        try {
-          const source = fp?.activeSource ?? "data";
-          const options = {extensions: [...IMAGE_EXTENSIONS]};
-          const bucket = fp?.source?.bucket ?? fp?.sources?.s3?.bucket;
-          if (source === "s3" && bucket) options.bucket = bucket;
-
-          const result = await FilePickerClass.browse(source, path, options);
-          resolve((result?.files ?? []).filter(isSupportedSource));
-        } catch (error) {
-          console.error(`${MODULE_TITLE} | Folder import failed`, error);
-          resolve([]);
-        }
-      }
-    });
-    picker.render(true);
-  });
-}
-
-async function askText({title, label, value = "", placeholder = ""}) {
+async function askText({title, label, value = ""}) {
   const DialogV2 = foundry?.applications?.api?.DialogV2;
   if (!DialogV2?.input) throw new Error("TW_DIALOG_V2_UNAVAILABLE");
 
@@ -778,39 +833,27 @@ async function askText({title, label, value = "", placeholder = ""}) {
     content: `
       <div class="form-group">
         <label>${foundry.utils.escapeHTML(label)}</label>
-        <input
-          type="text"
-          name="value"
-          value="${foundry.utils.escapeHTML(value)}"
-          placeholder="${foundry.utils.escapeHTML(placeholder)}">
+        <input type="text" name="value" value="${foundry.utils.escapeHTML(value)}">
       </div>`,
-    ok: {
-      label: "Confirmar",
-      icon: "fa-solid fa-check"
-    },
+    ok: {label: "Salvar", icon: "fa-solid fa-floppy-disk"},
     rejectClose: false
   });
 
   return String(result?.value ?? "").trim();
 }
 
-function explainProcessingError(error) {
-  const code = error?.message;
-
-  switch (code) {
-    case "TW_TOKENIZER_UNAVAILABLE":
-      return "Tokenizer não está ativo ou não expôs a API autoToken.";
-    case "TW_TOKENIZER_UPLOAD_PERMISSION":
-      return "O Tokenizer precisa da permissão FILES_UPLOAD para gerar e salvar a borda.";
-    case "TW_TOKENIZER_FRAME_DISABLED":
-      return "A borda automática do Tokenizer está desativada. O GM pode ativá-la pelo painel Aparências.";
+function processingErrorMessage(error) {
+  switch (error?.message) {
     case "TW_SOURCE_LOAD_FAILED":
-      return "A imagem de origem não pôde ser carregada. Em URLs, verifique CORS ou o proxy do Tokenizer.";
-    case "TW_TOKENIZER_BAD_OUTPUT":
-    case "TW_TOKENIZER_OUTPUT_LOAD_FAILED":
-      return "O Tokenizer não conseguiu gerar um arquivo de token válido.";
+      return "Não consegui abrir essa imagem. Use o link direto da imagem; se o site bloquear CORS, configure o proxy do Tokenizer.";
+    case "TW_UPLOAD_PERMISSION":
+      return "O Tokenizer precisa de permissão FILES_UPLOAD para salvar a imagem pronta.";
+    case "TW_UPLOAD_DIRECTORY_MISSING":
+      return "O diretório de upload do Tokenizer não está configurado.";
+    case "TW_FRAME_NOT_READY":
+      return "A moldura padrão do Tokenizer não está pronta ou está desativada.";
     default:
-      return "A imagem não pôde ser processada.";
+      return "Não foi possível preparar essa aparência.";
   }
 }
 
@@ -823,6 +866,363 @@ if (!ApplicationV2 || !HandlebarsApplicationMixin) {
 
 const BaseApplication = HandlebarsApplicationMixin(ApplicationV2);
 
+class TokenCropperApp extends BaseApplication {
+  static DEFAULT_OPTIONS = {
+    id: `${MODULE_ID}-cropper`,
+    tag: "section",
+    classes: ["twl-cropper-app"],
+    window: {
+      title: "Preparar aparência",
+      icon: "fa-solid fa-crop-simple",
+      resizable: true
+    },
+    position: {width: 520, height: 640},
+    actions: {
+      resetCrop: TokenCropperApp.#resetCrop,
+      saveCrop: TokenCropperApp.#saveCrop,
+      cancelCrop: TokenCropperApp.#cancelCrop
+    }
+  };
+
+  static PARTS = {
+    main: {template: `modules/${MODULE_ID}/templates/cropper.hbs`}
+  };
+
+  constructor(options = {}) {
+    super(options);
+
+    this.actor = options.actor;
+    this.token = options.token;
+    this.source = sanitizeSource(options.source);
+    this.entryId = String(options.entryId || "");
+    this.entryName = String(options.name || displayNameFromSource(this.source));
+    this.crop = normalizeCrop(options.crop);
+    this.sourceImage = null;
+    this.frameImage = null;
+    this.frameConfig = getTokenizerFrameConfig(this.actor, this.token);
+    this.dragging = false;
+    this.dragStart = null;
+    this.savePending = false;
+  }
+
+  async _prepareContext() {
+    return {
+      source: this.source,
+      name: this.entryName,
+      zoom: this.crop.zoom,
+      zoomPercent: Math.round(this.crop.zoom * 100),
+      frameReady: this.frameConfig.ready,
+      framePath: this.frameConfig.framePath,
+      canUpload: this.frameConfig.canUpload,
+      tokenizerActive: this.frameConfig.active,
+      tokenizerVersion: this.frameConfig.version,
+      frameEnabled: this.frameConfig.frameEnabled
+    };
+  }
+
+  async _onRender(context, options) {
+    await super._onRender(context, options);
+
+    const root = this.element;
+    if (!root) return;
+
+    const canvas = root.querySelector('[data-role="crop-canvas"]');
+    const zoom = root.querySelector('[data-role="zoom"]');
+    const zoomValue = root.querySelector('[data-role="zoom-value"]');
+
+    if (!canvas || !zoom) return;
+
+    canvas.width = 512;
+    canvas.height = 512;
+
+    try {
+      this.sourceImage = await loadImage(this.source);
+
+      if (this.frameConfig.framePath) {
+        try {
+          this.frameImage = await loadImage(this.frameConfig.framePath, {allowProxy: false});
+        } catch (error) {
+          console.warn(`${MODULE_TITLE} | Could not preview Tokenizer frame`, error);
+          this.frameImage = null;
+        }
+      }
+
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+    } catch (error) {
+      console.error(`${MODULE_TITLE} | Cropper image load failed`, error);
+      notify("error", processingErrorMessage(error));
+      await this.close();
+      return;
+    }
+
+    zoom.value = String(this.crop.zoom);
+
+    zoom.addEventListener("input", event => {
+      this.crop.zoom = Math.min(6, Math.max(1, Number(event.currentTarget.value || 1)));
+      this.#normalizePan(canvas.width);
+      zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
+      this.#draw(canvas);
+    });
+
+    canvas.addEventListener("pointerdown", event => {
+      this.dragging = true;
+      canvas.setPointerCapture?.(event.pointerId);
+      this.dragStart = {
+        x: event.clientX,
+        y: event.clientY,
+        panX: this.crop.panX,
+        panY: this.crop.panY
+      };
+      canvas.classList.add("is-dragging");
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (!this.dragging || !this.dragStart) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const factorX = canvas.width / rect.width;
+      const factorY = canvas.height / rect.height;
+
+      this.crop.panX = this.dragStart.panX + ((event.clientX - this.dragStart.x) * factorX);
+      this.crop.panY = this.dragStart.panY + ((event.clientY - this.dragStart.y) * factorY);
+
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+    });
+
+    const stopDrag = event => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.dragStart = null;
+      canvas.releasePointerCapture?.(event.pointerId);
+      canvas.classList.remove("is-dragging");
+    };
+
+    canvas.addEventListener("pointerup", stopDrag);
+    canvas.addEventListener("pointercancel", stopDrag);
+
+    canvas.addEventListener("wheel", event => {
+      event.preventDefault();
+
+      const delta = event.deltaY > 0 ? -0.08 : 0.08;
+      this.crop.zoom = Math.min(6, Math.max(1, this.crop.zoom + delta));
+      zoom.value = String(this.crop.zoom);
+      zoomValue.textContent = `${Math.round(this.crop.zoom * 100)}%`;
+
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+    }, {passive: false});
+  }
+
+  #normalizePan(size) {
+    if (!this.sourceImage) return;
+
+    const bounded = clampPan({
+      imageWidth: this.sourceImage.naturalWidth,
+      imageHeight: this.sourceImage.naturalHeight,
+      canvasSize: size,
+      zoom: this.crop.zoom,
+      panX: this.crop.panX,
+      panY: this.crop.panY
+    });
+
+    this.crop.panX = bounded.panX;
+    this.crop.panY = bounded.panY;
+  }
+
+  #draw(canvas) {
+    if (!this.sourceImage) return;
+
+    const ctx = canvas.getContext("2d");
+    const size = canvas.width;
+    const rect = calculateDrawRect(
+      this.sourceImage.naturalWidth,
+      this.sourceImage.naturalHeight,
+      size,
+      this.crop
+    );
+
+    this.crop = rect.crop;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = "#05080b";
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.drawImage(
+      this.sourceImage,
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height
+    );
+
+    // Discord-like circular safe area.
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,.32)";
+    ctx.beginPath();
+    ctx.rect(0, 0, size, size);
+    ctx.arc(size / 2, size / 2, size * 0.44, 0, Math.PI * 2, true);
+    ctx.fill("evenodd");
+    ctx.restore();
+
+    if (this.frameImage) {
+      drawFrame(
+        ctx,
+        this.frameImage,
+        size,
+        this.frameConfig.tintFrame ? this.frameConfig.tintColor : null
+      );
+    } else {
+      ctx.save();
+      ctx.strokeStyle = "rgba(116,231,255,.9)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size * 0.44, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  async #renderFinalCanvas() {
+    if (!this.sourceImage) throw new Error("TW_SOURCE_LOAD_FAILED");
+    if (!this.frameConfig.ready || !this.frameImage) throw new Error("TW_FRAME_NOT_READY");
+
+    const tokenSizeSetting = Number(safeTokenizerSetting("token-size", 400));
+    const size = Math.min(2048, Math.max(256, Number.isFinite(tokenSizeSetting) ? tokenSizeSetting : 400));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+
+    const ctx = canvas.getContext("2d");
+    const previewSize = 512;
+
+    // Crop pan is stored in preview-space units. Scale it to final output.
+    const cropForOutput = {
+      zoom: this.crop.zoom,
+      panX: this.crop.panX * (size / previewSize),
+      panY: this.crop.panY * (size / previewSize)
+    };
+
+    const rect = calculateDrawRect(
+      this.sourceImage.naturalWidth,
+      this.sourceImage.naturalHeight,
+      size,
+      cropForOutput
+    );
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(
+      this.sourceImage,
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height
+    );
+
+    drawFrame(
+      ctx,
+      this.frameImage,
+      size,
+      this.frameConfig.tintFrame ? this.frameConfig.tintColor : null
+    );
+
+    return canvas;
+  }
+
+  static async #resetCrop() {
+    this.crop = defaultCrop();
+
+    const canvas = this.element?.querySelector?.('[data-role="crop-canvas"]');
+    const zoom = this.element?.querySelector?.('[data-role="zoom"]');
+    const zoomValue = this.element?.querySelector?.('[data-role="zoom-value"]');
+
+    if (zoom) zoom.value = "1";
+    if (zoomValue) zoomValue.textContent = "100%";
+
+    if (canvas) {
+      this.#normalizePan(canvas.width || 512);
+      this.#draw(canvas);
+    }
+  }
+
+  static async #saveCrop(event, target) {
+    if (this.savePending) return;
+
+    this.savePending = true;
+    target.disabled = true;
+
+    try {
+      if (!this.frameConfig.ready) throw new Error("TW_FRAME_NOT_READY");
+
+      const nameInput = this.element?.querySelector?.('[data-role="crop-name"]');
+      const name = String(nameInput?.value || this.entryName).trim().slice(0, 80);
+
+      const canvas = await this.#renderFinalCanvas();
+      const blob = await canvasToBlob(canvas, "image/webp", 0.92);
+      const entryId = this.entryId || foundry.utils.randomID(16);
+      const finalPath = await uploadRenderedToken(this.actor, blob, entryId);
+
+      await upsertProcessedEntry(this.actor, {
+        entryId,
+        name,
+        source: this.source,
+        src: finalPath,
+        crop: this.crop
+      });
+
+      notify("info", "Aparência preparada e salva.");
+      await this.close();
+
+      if (appInstance?.rendered) {
+        appInstance.render({force: true});
+      }
+    } catch (error) {
+      console.error(`${MODULE_TITLE} | Crop save failed`, error);
+      notify("error", processingErrorMessage(error));
+    } finally {
+      this.savePending = false;
+      target.disabled = false;
+    }
+  }
+
+  static async #cancelCrop() {
+    await this.close();
+  }
+}
+
+function openCropper({actor, token, source, entry = null}) {
+  const frameConfig = getTokenizerFrameConfig(actor, token);
+
+  if (!frameConfig.active) {
+    notify("error", "Ative o Tokenizer para usar a moldura configurada nele.");
+    return null;
+  }
+
+  if (!frameConfig.canUpload) {
+    notify("error", "Você precisa da permissão FILES_UPLOAD para salvar a imagem pronta.");
+    return null;
+  }
+
+  if (!frameConfig.frameEnabled || !frameConfig.framePath) {
+    notify("error", "A borda padrão do Tokenizer está desativada ou não foi encontrada.");
+    return null;
+  }
+
+  const cropper = new TokenCropperApp({
+    actor,
+    token,
+    source,
+    entryId: entry?.id ?? "",
+    name: entry?.name ?? displayNameFromSource(source),
+    crop: entry?.crop ?? defaultCrop()
+  });
+
+  cropper.render({force: true});
+  return cropper;
+}
+
 class TokenWardrobeApp extends BaseApplication {
   static DEFAULT_OPTIONS = {
     id: `${MODULE_ID}-app`,
@@ -833,23 +1233,16 @@ class TokenWardrobeApp extends BaseApplication {
       icon: "fa-solid fa-masks-theater",
       resizable: true
     },
-    position: {width: 800, height: 720},
+    position: {width: 560, height: 620},
     actions: {
-      switchImage: TokenWardrobeApp.#switchImage,
-      addCurrent: TokenWardrobeApp.#addCurrent,
+      prepareUrl: TokenWardrobeApp.#prepareUrl,
       pickFile: TokenWardrobeApp.#pickFile,
-      addUrl: TokenWardrobeApp.#addUrl,
-      importFolder: TokenWardrobeApp.#importFolder,
-      removeImage: TokenWardrobeApp.#removeImage,
-      toggleFavorite: TokenWardrobeApp.#toggleFavorite,
+      switchImage: TokenWardrobeApp.#switchImage,
+      editCrop: TokenWardrobeApp.#editCrop,
       renameImage: TokenWardrobeApp.#renameImage,
-      reprocessImage: TokenWardrobeApp.#reprocessImage,
-      moveUp: TokenWardrobeApp.#moveUp,
-      moveDown: TokenWardrobeApp.#moveDown,
-      enableTokenizerFrame: TokenWardrobeApp.#enableTokenizerFrame,
-      toggleTokenizerCrop: TokenWardrobeApp.#toggleTokenizerCrop,
-      setTokenizerOffset: TokenWardrobeApp.#setTokenizerOffset,
-      toggleAutoTokenizer: TokenWardrobeApp.#toggleAutoTokenizer
+      toggleFavorite: TokenWardrobeApp.#toggleFavorite,
+      removeImage: TokenWardrobeApp.#removeImage,
+      enableTokenizerFrame: TokenWardrobeApp.#enableTokenizerFrame
     }
   };
 
@@ -893,7 +1286,28 @@ class TokenWardrobeApp extends BaseApplication {
     if (token) this.tokenId = token.id;
 
     const gallery = actor ? getGallery(actor) : [];
-    const tokenizer = getTokenizerStatus();
+    const frame = actor && token ? getTokenizerFrameConfig(actor, token) : {
+      active:false,
+      canUpload:false,
+      frameEnabled:false,
+      framePath:"",
+      ready:false,
+      version:""
+    };
+
+    let tokenizerStatus = "Tokenizer indisponível";
+    let tokenizerClass = "is-error";
+
+    if (frame.active && !frame.canUpload) {
+      tokenizerStatus = "Tokenizer · sem upload";
+      tokenizerClass = "is-warn";
+    } else if (frame.active && !frame.frameEnabled) {
+      tokenizerStatus = "Tokenizer · borda OFF";
+      tokenizerClass = "is-warn";
+    } else if (frame.ready) {
+      tokenizerStatus = `Tokenizer · pronto${frame.version ? ` v${frame.version}` : ""}`;
+      tokenizerClass = "is-ok";
+    }
 
     return {
       actor,
@@ -907,29 +1321,25 @@ class TokenWardrobeApp extends BaseApplication {
         name: item.name || actor?.name || "Token",
         selected: item.id === this.tokenId
       })),
-      gallery: gallery.map(entry => ({
+      gallery: [
+        ...gallery.filter(entry => entry.favorite),
+        ...gallery.filter(entry => !entry.favorite)
+      ].map(entry => ({
         ...entry,
-        searchText: `${entry.name} ${entry.source} ${entry.src}`.toLowerCase(),
         active: token?.document.texture?.src === entry.src,
-        tokenizerProcessed: entry.processor === "tokenizer",
-        processorLabel: entry.processor === "tokenizer" ? "TOKENIZER" : "RAW"
+        searchText: `${entry.name} ${entry.source}`.toLowerCase()
       })),
-      totalCount: gallery.length,
-      favoritesCount: gallery.filter(entry => entry.favorite).length,
-      canManage: canManageActor(actor),
       hasActor: Boolean(actor),
       hasToken: Boolean(token),
       multipleActors: actors.length > 1,
       multipleTokens: tokens.length > 1,
       currentSrc: token?.document.texture?.src ?? "",
+      canManage: canManageActor(actor),
       fixedRingSubject: hasFixedDynamicRingSubject(token),
-      tokenizer,
-      tokenizerStateOk: tokenizer.state === "ok",
-      tokenizerStateWarn: tokenizer.state === "warn",
-      tokenizerStateError: tokenizer.state === "error",
-      canConfigureTokenizer: isGM() && tokenizer.active,
-      canAdjustTokenizerOffset: tokenizer.active,
-      autoTokenizerEnabled: tokenizer.autoEnabled
+      tokenizerStatus,
+      tokenizerClass,
+      tokenizerReady: frame.ready,
+      canEnableFrame: isGM() && frame.active && !frame.frameEnabled
     };
   }
 
@@ -958,11 +1368,49 @@ class TokenWardrobeApp extends BaseApplication {
         card.hidden = Boolean(query) && !haystack.includes(query);
       }
     });
+
+    root.querySelector('[data-role="url-input"]')?.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      root.querySelector('[data-action="prepareUrl"]')?.click();
+    });
   }
 
   async close(options = {}) {
     if (appInstance === this) appInstance = null;
     return super.close(options);
+  }
+
+  static async #prepareUrl() {
+    const actor = this.actor;
+    const token = actor ? resolveToken(actor, this.tokenId) : null;
+    if (!actor || !token || !canManageActor(actor)) return;
+
+    const input = this.element?.querySelector?.('[data-role="url-input"]');
+    const source = sanitizeSource(input?.value);
+
+    if (!source || !isRemoteUrl(source)) {
+      notify("error", "Cole o link direto http/https de uma imagem.");
+      return;
+    }
+
+    openCropper({actor, token, source});
+  }
+
+  static async #pickFile() {
+    try {
+      const actor = this.actor;
+      const token = actor ? resolveToken(actor, this.tokenId) : null;
+      if (!actor || !token || !canManageActor(actor)) return;
+
+      const source = await pickSingleImage();
+      if (!source) return;
+
+      openCropper({actor, token, source});
+    } catch (error) {
+      console.error(`${MODULE_TITLE} | File Picker failed`, error);
+      notify("error", "Não foi possível abrir o seletor de arquivos.");
+    }
   }
 
   static async #switchImage(event, target) {
@@ -988,148 +1436,27 @@ class TokenWardrobeApp extends BaseApplication {
       }
     } catch (error) {
       console.error(`${MODULE_TITLE} | switchImage failed`, error);
-
-      if (error?.message === "TW_IMAGE_LOAD_FAILED") {
-        notify("error", "A imagem final não pôde ser carregada. O token não foi alterado.");
-      } else {
-        notify("error", "Não foi possível trocar a aparência desse token.");
-      }
+      notify("error", "Não foi possível trocar a aparência desse token.");
     } finally {
       target.disabled = false;
     }
   }
 
-  static async #addCurrent() {
-    try {
-      const actor = this.actor;
-      const token = actor ? resolveToken(actor, this.tokenId) : null;
-      if (!actor || !token || !canManageActor(actor)) return;
-
-      const result = await addSources(
-        actor,
-        token,
-        [{source: token.document.texture?.src, name: token.name || actor.name}],
-        {forceRaw: true}
-      );
-
-      if (result.added) notify("info", "Arte atual adicionada à galeria.");
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | addCurrent failed`, error);
-      notify("error", explainProcessingError(error));
-    }
-  }
-
-  static async #pickFile() {
-    try {
-      const actor = this.actor;
-      const token = actor ? resolveToken(actor, this.tokenId) : null;
-      if (!actor || !token || !canManageActor(actor)) return;
-
-      const path = await pickSingleImage();
-      if (!path) return;
-
-      notify("info", "Processando imagem...");
-      const result = await addSources(actor, token, [path]);
-
-      if (result.added) {
-        notify("info", "Imagem adicionada.");
-      } else if (result.failures.length) {
-        notify("error", explainProcessingError(result.failures[0].error));
-      }
-
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | File Picker failed`, error);
-      notify("error", explainProcessingError(error));
-    }
-  }
-
-  static async #addUrl() {
-    try {
-      const actor = this.actor;
-      const token = actor ? resolveToken(actor, this.tokenId) : null;
-      if (!actor || !token || !canManageActor(actor)) return;
-
-      const source = await askText({
-        title: "Adicionar imagem por URL",
-        label: "URL pública da imagem",
-        placeholder: "https://..."
-      });
-
-      if (!source) return;
-
-      const clean = sanitizeSource(source);
-      if (!clean || !isRemoteUrl(clean)) {
-        notify("error", "Informe uma URL http/https válida.");
-        return;
-      }
-
-      notify("info", "Processando URL com o Tokenizer...");
-      const result = await addSources(actor, token, [clean]);
-
-      if (result.added) {
-        notify("info", "URL processada e adicionada.");
-      } else if (result.failures.length) {
-        notify("error", explainProcessingError(result.failures[0].error));
-      }
-
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | URL import failed`, error);
-      notify("error", explainProcessingError(error));
-    }
-  }
-
-  static async #importFolder() {
-    try {
-      const actor = this.actor;
-      const token = actor ? resolveToken(actor, this.tokenId) : null;
-      if (!actor || !token || !canManageActor(actor)) return;
-
-      const files = await browseFolder();
-      if (!files.length) {
-        notify("info", "Nenhuma imagem compatível foi encontrada nessa pasta.");
-        return;
-      }
-
-      notify("info", `Processando ${files.length} imagem(ns)...`);
-      const result = await addSources(actor, token, files);
-
-      if (result.added) {
-        notify("info", `${result.added} aparência(s) adicionada(s).`);
-      }
-
-      if (result.failures.length) {
-        notify("warn", `${result.failures.length} imagem(ns) não puderam ser processadas.`);
-      }
-
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Folder import failed`, error);
-      notify("error", explainProcessingError(error));
-    }
-  }
-
-  static async #removeImage(event, target) {
+  static async #editCrop(event, target) {
     const actor = this.actor;
-    if (!actor || !canManageActor(actor)) return;
+    const token = actor ? resolveToken(actor, this.tokenId) : null;
+    if (!actor || !token || !canManageActor(actor)) return;
 
     const id = String(target.dataset.id || "");
-    await saveGallery(actor, getGallery(actor).filter(entry => entry.id !== id));
-    this.render({force: true});
-  }
+    const entry = getGallery(actor).find(item => item.id === id);
+    if (!entry) return;
 
-  static async #toggleFavorite(event, target) {
-    const actor = this.actor;
-    if (!actor || !canManageActor(actor)) return;
-
-    const id = String(target.dataset.id || "");
-    const gallery = getGallery(actor).map(entry =>
-      entry.id === id ? {...entry, favorite: !entry.favorite} : entry);
-
-    await saveGallery(actor, gallery.sort((a, b) => a.order - b.order));
-    this.render({force: true});
+    openCropper({
+      actor,
+      token,
+      source: entry.source,
+      entry
+    });
   }
 
   static async #renameImage(event, target) {
@@ -1150,52 +1477,33 @@ class TokenWardrobeApp extends BaseApplication {
 
       if (!name) return;
 
-      entry.name = String(name).trim().slice(0, 80);
-      await saveGallery(actor, gallery.sort((a, b) => a.order - b.order));
+      entry.name = name.slice(0, 80);
+      await saveGallery(actor, gallery);
       this.render({force: true});
     } catch (error) {
       console.error(`${MODULE_TITLE} | Rename failed`, error);
-      notify("error", "Não foi possível renomear esta aparência.");
+      notify("error", "Não foi possível renomear.");
     }
   }
 
-  static async #reprocessImage(event, target) {
-    try {
-      const actor = this.actor;
-      const token = actor ? resolveToken(actor, this.tokenId) : null;
-      if (!actor || !token || !canManageActor(actor)) return;
-
-      notify("info", "Reprocessando com o Tokenizer...");
-      await reprocessEntry(actor, token, String(target.dataset.id || ""));
-      notify("info", "Aparência reprocessada.");
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Reprocess failed`, error);
-      notify("error", explainProcessingError(error));
-    }
-  }
-
-  static async #moveUp(event, target) {
-    return this.#move(String(target.dataset.id || ""), -1);
-  }
-
-  static async #moveDown(event, target) {
-    return this.#move(String(target.dataset.id || ""), 1);
-  }
-
-  async #move(id, direction) {
+  static async #toggleFavorite(event, target) {
     const actor = this.actor;
     if (!actor || !canManageActor(actor)) return;
 
-    const gallery = getGallery(actor).sort((a, b) => a.order - b.order);
-    const index = gallery.findIndex(entry => entry.id === id);
-    const targetIndex = index + direction;
-    if (index < 0 || targetIndex < 0 || targetIndex >= gallery.length) return;
-
-    [gallery[index], gallery[targetIndex]] = [gallery[targetIndex], gallery[index]];
-    gallery.forEach((entry, order) => entry.order = order);
+    const id = String(target.dataset.id || "");
+    const gallery = getGallery(actor).map(entry =>
+      entry.id === id ? {...entry, favorite: !entry.favorite} : entry);
 
     await saveGallery(actor, gallery);
+    this.render({force: true});
+  }
+
+  static async #removeImage(event, target) {
+    const actor = this.actor;
+    if (!actor || !canManageActor(actor)) return;
+
+    const id = String(target.dataset.id || "");
+    await saveGallery(actor, getGallery(actor).filter(entry => entry.id !== id));
     this.render({force: true});
   }
 
@@ -1204,69 +1512,12 @@ class TokenWardrobeApp extends BaseApplication {
 
     try {
       await game.settings.set(TOKENIZER_ID, "add-frame-default", true);
-      notify("info", "Borda automática do Tokenizer ativada.");
+      notify("info", "Borda padrão do Tokenizer ativada.");
       this.render({force: true});
     } catch (error) {
       console.error(`${MODULE_TITLE} | Could not enable Tokenizer frame`, error);
-      notify("error", "Não foi possível alterar a configuração do Tokenizer.");
+      notify("error", "Não foi possível ativar a borda do Tokenizer.");
     }
-  }
-
-  static async #toggleTokenizerCrop() {
-    if (!isGM() || !game.modules.get(TOKENIZER_ID)?.active) return;
-
-    try {
-      const current = safeTokenizerSetting("default-crop-image", false) === true;
-      await game.settings.set(TOKENIZER_ID, "default-crop-image", !current);
-      notify(
-        "info",
-        !current
-          ? "Preenchimento central ativado."
-          : "Modo conter imagem ativado."
-      );
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Could not toggle Tokenizer crop`, error);
-      notify("error", "Não foi possível alterar o enquadramento do Tokenizer.");
-    }
-  }
-
-  static async #setTokenizerOffset() {
-    if (!game.modules.get(TOKENIZER_ID)?.active) return;
-
-    try {
-      const current = Number(safeTokenizerSetting("default-token-offset", -35));
-      const raw = await askText({
-        title: "Ajustar recuo do Tokenizer",
-        label: "Offset em pixels",
-        value: String(Number.isFinite(current) ? current : -35),
-        placeholder: "-35"
-      });
-
-      if (raw === "") return;
-
-      const value = Number(raw);
-      if (!Number.isFinite(value) || value < -500 || value > 500) {
-        notify("error", "Use um valor entre -500 e 500.");
-        return;
-      }
-
-      await game.settings.set(TOKENIZER_ID, "default-token-offset", value);
-      notify("info", `Offset do Tokenizer ajustado para ${value}.`);
-      this.render({force: true});
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Could not set Tokenizer offset`, error);
-      notify("error", "Não foi possível alterar o offset do Tokenizer.");
-    }
-  }
-
-  static async #toggleAutoTokenizer() {
-    if (!isGM()) return;
-
-    const current = game.settings.get(MODULE_ID, SETTING_AUTO_TOKENIZER) === true;
-    await game.settings.set(MODULE_ID, SETTING_AUTO_TOKENIZER, !current);
-    notify("info", !current ? "Tokenizer automático ativado." : "Tokenizer automático desativado.");
-    this.render({force: true});
   }
 }
 
@@ -1294,7 +1545,7 @@ function registerWithHoloSuite(api = null) {
     premium: false,
     playerVisible: true,
     featureId: MODULE_ID,
-    description: "Troque e processe automaticamente a arte visual do seu token.",
+    description: "Cole uma arte, enquadre manualmente e use a moldura do Tokenizer.",
     open: () => openWardrobe()
   });
 
@@ -1314,7 +1565,7 @@ function exposeApi() {
 
     switchImage: args => switchImage(args),
 
-    addSource: async ({actorId, tokenId, source, name = ""}) => {
+    openCropper: ({actorId, tokenId, source, entryId = ""}) => {
       const token = tokenId ? canvas?.tokens?.get?.(tokenId) : null;
       const actor = token?.actor ?? game.actors?.get?.(actorId) ?? null;
 
@@ -1323,29 +1574,29 @@ function exposeApi() {
       const resolvedToken = resolveToken(actor, tokenId);
       if (!resolvedToken) throw new Error("TW_TOKEN_NOT_FOUND");
 
-      return addSources(actor, resolvedToken, [{source, name}]);
+      const entry = entryId
+        ? getGallery(actor).find(item => item.id === entryId) ?? null
+        : null;
+
+      return openCropper({
+        actor,
+        token: resolvedToken,
+        source: sanitizeSource(source || entry?.source),
+        entry
+      });
     },
 
-    reprocess: async ({actorId, tokenId, entryId}) => {
+    getTokenizerFrameConfig: ({actorId, tokenId}) => {
       const token = tokenId ? canvas?.tokens?.get?.(tokenId) : null;
       const actor = token?.actor ?? game.actors?.get?.(actorId) ?? null;
-
-      if (!actor || !canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
-
-      const resolvedToken = resolveToken(actor, tokenId);
-      if (!resolvedToken) throw new Error("TW_TOKEN_NOT_FOUND");
-
-      return reprocessEntry(actor, resolvedToken, entryId);
+      if (!actor || !canAccessActor(actor)) return null;
+      return {...getTokenizerFrameConfig(actor, token ?? resolveToken(actor, tokenId))};
     },
-
-    getTokenizerStatus: () => ({...getTokenizerStatus()}),
 
     resolveDefaultActor: () => {
       const actor = resolveDefaultActor();
       return actor && canAccessActor(actor) ? actor : null;
-    },
-
-    getEligibleActors: () => getEligibleActors().filter(canAccessActor)
+    }
   });
 
   const moduleEntry = game.modules.get(MODULE_ID);
@@ -1356,7 +1607,7 @@ function exposeApi() {
 Hooks.once("init", () => {
   game.settings.register(MODULE_ID, SETTING_PLAYER_MANAGE, {
     name: "Players podem gerenciar a própria galeria",
-    hint: "Permite que jogadores Owner adicionem, removam, renomeiem, processem e reordenem artes do próprio Actor.",
+    hint: "Permite que jogadores Owner adicionem, reenquadrem, renomeiem e removam artes do próprio Actor.",
     scope: "world",
     config: true,
     type: Boolean,
@@ -1380,36 +1631,6 @@ Hooks.once("init", () => {
     config: true,
     type: Number,
     default: 60,
-    restricted: true
-  });
-
-  game.settings.register(MODULE_ID, SETTING_AUTO_TOKENIZER, {
-    name: "Processar novas artes automaticamente com Tokenizer",
-    hint: "Quando ativo, arquivos e URLs são enviados ao autoToken do Tokenizer sem abrir sua interface.",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: true,
-    restricted: true
-  });
-
-  game.settings.register(MODULE_ID, SETTING_REQUIRE_TOKENIZER_FRAME, {
-    name: "Exigir borda automática do Tokenizer",
-    hint: "Impede criar uma aparência processada se a opção Add Frame Default do Tokenizer estiver desligada.",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: true,
-    restricted: true
-  });
-
-  game.settings.register(MODULE_ID, SETTING_RAW_FALLBACK, {
-    name: "Usar imagem sem borda se Tokenizer falhar",
-    hint: "Se desativado, uma falha do Tokenizer cancela a adição em vez de salvar a imagem original.",
-    scope: "world",
-    config: true,
-    type: Boolean,
-    default: false,
     restricted: true
   });
 

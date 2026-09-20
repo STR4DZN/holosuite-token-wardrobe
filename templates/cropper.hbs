@@ -1,0 +1,60 @@
+
+<div class="twl-cropper-shell">
+  <div class="twl-cropper-scroll">
+    <header class="twl-cropper-header">
+      <div>
+        <span class="twl-kicker">ENQUADRAMENTO MANUAL</span>
+        <h2>Arraste e aproxime</h2>
+        <p>Posicione exatamente como numa foto de perfil.</p>
+      </div>
+      <span class="twl-tokenizer-chip is-ok">
+        <i class="fa-solid fa-circle"></i>
+        Moldura Tokenizer
+      </span>
+    </header>
+
+    <label class="twl-field compact">
+      <span>Nome</span>
+      <input data-role="crop-name" type="text" value="{{name}}" maxlength="80">
+    </label>
+
+    <div class="twl-crop-stage">
+      <canvas data-role="crop-canvas" width="512" height="512"></canvas>
+      <div class="twl-crop-hint">
+        <i class="fa-solid fa-hand"></i>
+        Arraste a imagem
+      </div>
+    </div>
+
+    <div class="twl-zoom-row">
+      <i class="fa-solid fa-magnifying-glass-minus"></i>
+      <input
+        data-role="zoom"
+        type="range"
+        min="1"
+        max="6"
+        step="0.01"
+        value="{{zoom}}">
+      <i class="fa-solid fa-magnifying-glass-plus"></i>
+      <strong data-role="zoom-value">{{zoomPercent}}%</strong>
+    </div>
+
+    <div class="twl-source-note">
+      <i class="fa-solid fa-link"></i>
+      <span title="{{source}}">{{source}}</span>
+    </div>
+  </div>
+
+  <footer class="twl-cropper-footer">
+    <button type="button" data-action="resetCrop">
+      <i class="fa-solid fa-rotate-left"></i>
+      Resetar
+    </button>
+    <span class="twl-spacer"></span>
+    <button type="button" data-action="cancelCrop">Cancelar</button>
+    <button class="twl-primary" type="button" data-action="saveCrop">
+      <i class="fa-solid fa-check"></i>
+      Usar enquadramento
+    </button>
+  </footer>
+</div>

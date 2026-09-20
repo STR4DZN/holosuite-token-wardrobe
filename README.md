@@ -1,98 +1,97 @@
-# HoloSuite Token Wardrobe v0.3.0
+# HoloSuite Token Wardrobe v0.4.0
 
-Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core.
+## Fluxo atual
 
-## Fluxo principal
+A versão 0.4 remove o auto-enquadramento da versão 0.3.
 
 ```text
-Arquivo/URL original
+colar URL / escolher imagem
         ↓
-HoloSuite → Aparências
+editor manual
         ↓
-Tokenizer autoToken (sem abrir a janela)
+arrastar + zoom
         ↓
-centraliza/enquadra usando as configurações do Tokenizer
+preview com a moldura real do Tokenizer
         ↓
-aplica a borda padrão
+confirmar
         ↓
-faz upload da imagem final
+o módulo renderiza arte + moldura
         ↓
-Token Wardrobe salva o resultado na galeria
+upload no diretório configurado no Tokenizer
         ↓
-ao escolher a aparência:
-TokenDocument.update({"texture.src": final})
+galeria
+        ↓
+troca somente texture.src
 ```
 
-O Tokenizer é chamado com `updateActor: false`. Ele é usado somente como motor de composição e upload.
+## URL
 
-## Segurança mecânica
+Aceita link direto `http://` / `https://` de imagem, incluindo CDNs quando o servidor permite uso em canvas.
 
-A única mutação feita pelo Token Wardrobe no Token continua sendo:
+Para reenquadrar e exportar uma imagem remota, o navegador precisa poder lê-la via CORS.
+O módulo reutiliza o proxy configurado no Tokenizer quando aplicável.
+
+Links de páginas (por exemplo, uma página de Pin em vez do arquivo da imagem) não são imagens diretas.
+
+## Editor manual
+
+- arraste a imagem;
+- zoom de 100% a 600%;
+- roda do mouse também altera zoom;
+- o círculo escurecido mostra a área segura;
+- a moldura configurada no Tokenizer aparece por cima durante a edição;
+- Resetar volta ao enquadramento central padrão.
+
+O zoom mínimo mantém a imagem cobrindo completamente o quadrado, como seletores de avatar.
+
+## Tokenizer
+
+A v0.4 NÃO chama `autoToken()`.
+
+Ela usa somente as configurações e assets do Tokenizer:
+- borda padrão PC/NPC;
+- borda tintada quando configurada;
+- cores de tint;
+- diretório de upload;
+- tamanho configurado do token;
+- proxy configurado para URLs.
+
+Isso elimina o segundo auto-enquadramento que estava alterando o posicionamento escolhido pelo usuário.
+
+## Segurança
+
+A única mutação em Token continua sendo:
 
 ```js
 await token.document.update({"texture.src": cleanSrc});
 ```
 
-O módulo não altera Actor portrait, Prototype Token, posição, tamanho, escala, visão, luz,
-disposition, statuses, effects, iniciativa, Dynamic Ring ou flags de outros módulos.
+Não altera Actor, Prototype Token, posição, escala, visão, luz, HP, condições ou flags de automação.
 
-## URL
+## Tela pequena
 
-URLs `http://` e `https://` são aceitas.
+A janela principal e o editor:
+- respeitam `vw` e `vh`;
+- possuem altura máxima;
+- têm rolagem vertical própria;
+- usam grid de duas colunas em telas menores;
+- mantêm os botões de confirmação do cropper fixos no rodapé.
 
-Quando o Tokenizer automático está ativo, a URL é carregada com comportamento compatível com o Tokenizer:
-- CORS anônimo;
-- proxy do Tokenizer quando configurado;
-- falha antes da tokenização se a imagem não puder ser carregada.
+## Schema v3
 
-A URL original é preservada em `source`; o arquivo final gerado pelo Tokenizer fica em `src`.
+Cada entrada salva:
+- `source`: URL/arquivo original;
+- `src`: imagem final com moldura;
+- `crop.zoom`;
+- `crop.panX`;
+- `crop.panY`.
 
-## Tokenizer
+Assim **Reenquadrar** abre novamente a imagem original usando o posicionamento salvo.
 
-Integração esperada: módulo `vtta-tokenizer`.
+## LANCER
 
-O painel Aparências mostra:
-- Tokenizer conectado;
-- versão;
-- permissão FILES_UPLOAD;
-- borda padrão ON/OFF;
-- enquadramento CONTER/PREENCHER;
-- offset configurado;
-- botão **Ajustar recuo** no próprio app (setting player-scoped do Tokenizer);
-- processamento automático ON/OFF.
+A integração classifica Actors `pilot` e `mech` como PC para escolher:
+- `default-frame-pc`;
+- `image-upload-directory`.
 
-GM pode ativar a borda padrão e alternar o modo de enquadramento sem abrir a janela do Tokenizer.
-
-### Permissão de upload
-
-O autoToken precisa conseguir salvar o arquivo final no Foundry. Players precisam de `FILES_UPLOAD`,
-o mesmo requisito do Tokenizer.
-
-## Schema v2
-
-```json
-{
-  "schemaVersion": 2,
-  "gallery": [
-    {
-      "id": "...",
-      "name": "Combate",
-      "source": "https://.../arte.png",
-      "src": "uploads/tokens/actor.Token.hstw-....webp?hstw=...",
-      "processor": "tokenizer",
-      "processedAt": 0,
-      "processorVersion": "5.0.3",
-      "favorite": false,
-      "order": 0
-    }
-  ]
-}
-```
-
-Entradas das versões anteriores são migradas automaticamente. Como versões antigas não armazenavam a
-origem separadamente, `source` recebe o antigo `src`.
-
-## Reprocessar
-
-Cada card possui um botão de varinha. Ele reutiliza `source`, roda novamente no Tokenizer com as
-configurações atuais e substitui apenas a imagem processada da galeria.
+Actors `npc` e `deployable` permanecem no caminho NPC.
