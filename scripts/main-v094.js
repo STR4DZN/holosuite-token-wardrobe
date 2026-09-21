@@ -4,8 +4,7 @@ const MODULE_TITLE = "HoloSuite Token Wardrobe";
 const TOKENIZER_ID = "vtta-tokenizer";
 
 const FLAG_KEY = "state";
-const SCHEMA_VERSION = 4;
-const DEFAULT_FRAME_COLOR = "#8B5A2B";
+const SCHEMA_VERSION = 5;
 const MIN_CROP_ZOOM = 0.10;
 const MAX_CROP_ZOOM = 6;
 
@@ -165,7 +164,6 @@ async function requestAppearanceSave({
   name,
   source,
   crop,
-  frameColor,
   blob
 }) {
   if (!actor || !canAccessActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
@@ -181,7 +179,6 @@ async function requestAppearanceSave({
       name,
       source,
       crop: normalizeCrop(crop),
-      frameColor: normalizeHexColor(frameColor),
       filename,
       mimeType: "image/webp",
       base64
@@ -263,8 +260,7 @@ async function processSocketRequest(message) {
         name: String(payload.name || "Nova aparência").slice(0, 80),
         source,
         src: finalPath,
-        crop: normalizeCrop(payload.crop),
-        frameColor: normalizeHexColor(payload.frameColor)
+        crop: normalizeCrop(payload.crop)
       });
 
       return {
@@ -602,33 +598,6 @@ function canModifyTokenImage(token, targetSrc = token?.document?.texture?.src) {
 }
 
 
-function normalizeHexColor(value, fallback = DEFAULT_FRAME_COLOR) {
-  const raw = String(value ?? "").trim();
-
-  if (/^#[0-9a-f]{6}$/i.test(raw)) {
-    return raw.toUpperCase();
-  }
-
-  if (/^[0-9a-f]{6}$/i.test(raw)) {
-    return `#${raw.toUpperCase()}`;
-  }
-
-  return fallback;
-}
-
-function frameColorPresets() {
-  return [
-    {label: "Marrom", value: "#8B5A2B"},
-    {label: "Ciano", value: "#20D9E8"},
-    {label: "Laranja", value: "#F59A23"},
-    {label: "Vermelho", value: "#D94C4C"},
-    {label: "Verde", value: "#45B96B"},
-    {label: "Roxo", value: "#9B6FE8"},
-    {label: "Branco", value: "#E8E8E8"},
-    {label: "Preto", value: "#222222"}
-  ];
-}
-
 function defaultCrop() {
   return {
     zoom: 1,
@@ -670,8 +639,7 @@ function normalizeEntry(entry, index = 0) {
     order: Number.isFinite(Number(entry?.order)) ? Number(entry.order) : index,
     processor: entry?.processor === "frame" ? "frame" : "raw",
     processedAt: Number.isFinite(Number(entry?.processedAt)) ? Number(entry.processedAt) : null,
-    crop: normalizeCrop(entry?.crop),
-    frameColor: normalizeHexColor(entry?.frameColor)
+    crop: normalizeCrop(entry?.crop)
   };
 }
 
@@ -728,8 +696,7 @@ async function migrateActorState(actor) {
     normalized.some((entry, index) =>
       !raw.gallery[index]?.id ||
       !raw.gallery[index]?.source ||
-      !raw.gallery[index]?.crop ||
-      !raw.gallery[index]?.frameColor
+      !raw.gallery[index]?.crop
     );
 
   if (!needsMigration) return false;
@@ -949,28 +916,18 @@ function getTokenizerFrameConfig(actor, token) {
   const relayUpload = canUseGmRelay();
   const canUpload = localUpload || relayUpload;
 
-  // Use Tokenizer's NPC frame as the default base border.
-  // This matches the user's requested default more closely than the tint-only marble base.
-  const configuredNpcFrame = safeTokenizerSetting(
-    "default-frame-neutral",
-    "[data] modules/vtta-tokenizer/img/default-frame-npc.png"
-  );
-
-  const rawFrame = String(configuredNpcFrame || "").trim()
-    || "[data] modules/vtta-tokenizer/img/default-frame-npc.png";
-
-  const framePath = sanitizeSource(stripDirectoryPrefix(rawFrame));
+  const framePath = "modules/holosuite-token-wardrobe/assets/fixed-border.png";
 
   return {
     active,
     localUpload,
     relayUpload,
     canUpload,
-    frameEnabled: active && Boolean(framePath),
+    frameEnabled: Boolean(framePath),
     framePath,
-    tintFrame: true,
-    tintAlgorithm: "tokenizer-npc-default",
-    tokenizerTintBase: true,
+    tintFrame: false,
+    tintAlgorithm: "fixed-frame-image",
+    tokenizerTintBase: false,
     ready: active && canUpload && Boolean(framePath),
     version: String(module?.version ?? "")
   };
@@ -1149,47 +1106,9 @@ function hexToRgba(hex) {
   };
 }
 
-function drawFrame(ctx, frameImage, size, tintColor = DEFAULT_FRAME_COLOR) {
+function drawFrame(ctx, frameImage, size) {
   if (!frameImage) return;
-
-  const color = normalizeHexColor(tintColor, "");
-  if (!color) {
-    ctx.drawImage(frameImage, 0, 0, size, size);
-    return;
-  }
-
-  // Reproduce Tokenizer 5.0.3 Layer.applyTint() instead of approximating it.
-  //
-  // Tokenizer 5.0.3:
-  // 1) draws the original marble frame;
-  // 2) creates a tinted copy using source-atop;
-  // 3) composites that copy over the original using the Canvas "color"
-  //    blend mode, preserving the original frame's luminosity/details.
-  const frameCanvas = document.createElement("canvas");
-  frameCanvas.width = size;
-  frameCanvas.height = size;
-  const frameCtx = frameCanvas.getContext("2d");
-
-  const tintCanvas = document.createElement("canvas");
-  tintCanvas.width = size;
-  tintCanvas.height = size;
-  const tintCtx = tintCanvas.getContext("2d");
-
-  frameCtx.clearRect(0, 0, size, size);
-  frameCtx.drawImage(frameImage, 0, 0, size, size);
-
-  tintCtx.clearRect(0, 0, size, size);
-  tintCtx.drawImage(frameImage, 0, 0, size, size);
-  tintCtx.globalCompositeOperation = "source-atop";
-  tintCtx.fillStyle = color;
-  tintCtx.fillRect(0, 0, size, size);
-  tintCtx.globalCompositeOperation = "source-over";
-
-  frameCtx.globalCompositeOperation = "color";
-  frameCtx.drawImage(tintCanvas, 0, 0, size, size);
-  frameCtx.globalCompositeOperation = "source-over";
-
-  ctx.drawImage(frameCanvas, 0, 0, size, size);
+  ctx.drawImage(frameImage, 0, 0, size, size);
 }
 
 async function canvasToBlob(canvas, type = "image/webp", quality = 0.92) {
@@ -1375,8 +1294,7 @@ async function upsertProcessedEntry(actor, {
   name = "",
   source,
   src,
-  crop,
-  frameColor = DEFAULT_FRAME_COLOR
+  crop
 }) {
   if (!actor || !canManageActor(actor)) throw new Error("TW_MANAGE_FORBIDDEN");
 
@@ -1393,7 +1311,6 @@ async function upsertProcessedEntry(actor, {
     existing.processor = "frame";
     existing.processedAt = Date.now();
     existing.crop = normalizeCrop(crop);
-    existing.frameColor = normalizeHexColor(frameColor);
   } else {
     gallery.push({
       id,
@@ -1404,8 +1321,7 @@ async function upsertProcessedEntry(actor, {
       order: gallery.length,
       processor: "frame",
       processedAt: Date.now(),
-      crop: normalizeCrop(crop),
-      frameColor: normalizeHexColor(frameColor)
+      crop: normalizeCrop(crop)
     });
   }
 
@@ -1477,6 +1393,51 @@ if (!ApplicationV2 || !HandlebarsApplicationMixin) {
 
 const BaseApplication = HandlebarsApplicationMixin(ApplicationV2);
 
+
+function bindCropperWindowClose(app) {
+  const closeButton = app?.window?.close;
+  if (!closeButton || closeButton.dataset?.twlCloseBound === "true") return false;
+
+  if (closeButton.dataset) closeButton.dataset.twlCloseBound = "true";
+
+  closeButton.addEventListener(
+    "click",
+    event => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      void app.close();
+    },
+    {capture: true}
+  );
+
+  return true;
+}
+
+async function cancelCropperAndReturn(app) {
+  if (!app || app.cancelPending || app.savePending) return false;
+  app.cancelPending = true;
+
+  const parent = app.returnApp ?? appInstance;
+  const actorId = app.actor?.id ?? "";
+  const tokenId = app.token?.id ?? "";
+
+  try {
+    await app.close();
+
+    if (parent?.rendered) {
+      parent.render({force: true});
+      parent.bringToFront?.();
+    } else {
+      openWardrobe({actorId, tokenId});
+    }
+
+    return true;
+  } finally {
+    app.cancelPending = false;
+  }
+}
+
 class TokenCropperApp extends BaseApplication {
   static DEFAULT_OPTIONS = {
     id: `${MODULE_ID}-cropper`,
@@ -1497,7 +1458,7 @@ class TokenCropperApp extends BaseApplication {
   };
 
   static PARTS = {
-    main: {template: `modules/${MODULE_ID}/templates/cropper.hbs`}
+    main: {template: `modules/${MODULE_ID}/templates/cropper-v094.hbs`}
   };
 
   constructor(options = {}) {
@@ -1509,13 +1470,14 @@ class TokenCropperApp extends BaseApplication {
     this.entryId = String(options.entryId || "");
     this.entryName = String(options.name || displayNameFromSource(this.source));
     this.crop = normalizeCrop(options.crop);
-    this.frameColor = normalizeHexColor(options.frameColor);
     this.sourceImage = null;
     this.frameImage = null;
     this.frameConfig = getTokenizerFrameConfig(this.actor, this.token);
     this.dragging = false;
     this.dragStart = null;
     this.savePending = false;
+    this.cancelPending = false;
+    this.returnApp = options.returnApp ?? null;
   }
 
   async _prepareContext() {
@@ -1526,8 +1488,6 @@ class TokenCropperApp extends BaseApplication {
       zoomPercent: Math.round(this.crop.zoom * 100),
       zoomMin: MIN_CROP_ZOOM,
       zoomMax: MAX_CROP_ZOOM,
-      frameColor: this.frameColor,
-      frameColorPresets: frameColorPresets(),
       frameReady: this.frameConfig.ready,
       framePath: this.frameConfig.framePath,
       frameAlgorithm: this.frameConfig.tintAlgorithm,
@@ -1543,6 +1503,10 @@ class TokenCropperApp extends BaseApplication {
 
     const root = this.element;
     if (!root) return;
+
+    // Foundry v13 exposes the frame close button as `this.window.close`.
+    // Bind it explicitly so X always closes this cropper only.
+    bindCropperWindowClose(this);
 
     const canvas = root.querySelector('[data-role="crop-canvas"]');
     const zoom = root.querySelector('[data-role="zoom"]');
@@ -1586,38 +1550,6 @@ class TokenCropperApp extends BaseApplication {
       this.#draw(canvas);
     });
 
-    const colorPicker = root.querySelector('[data-role="frame-color"]');
-    const colorHex = root.querySelector('[data-role="frame-color-hex"]');
-
-    const applyFrameColor = value => {
-      this.frameColor = normalizeHexColor(value);
-
-      if (colorPicker) colorPicker.value = this.frameColor;
-      if (colorHex) colorHex.value = this.frameColor;
-
-      this.#draw(canvas);
-    };
-
-    colorPicker?.addEventListener("input", event => {
-      applyFrameColor(event.currentTarget.value);
-    });
-
-    colorHex?.addEventListener("change", event => {
-      applyFrameColor(event.currentTarget.value);
-    });
-
-    colorHex?.addEventListener("keydown", event => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      applyFrameColor(event.currentTarget.value);
-    });
-
-    for (const button of root.querySelectorAll('[data-role="frame-preset"]')) {
-      button.addEventListener("click", event => {
-        event.preventDefault();
-        applyFrameColor(event.currentTarget.dataset.color);
-      });
-    }
 
     canvas.addEventListener("pointerdown", event => {
       this.dragging = true;
@@ -1708,8 +1640,7 @@ class TokenCropperApp extends BaseApplication {
       drawFrame(
         ctx,
         this.frameImage,
-        size,
-        this.frameColor
+        size
       );
     } else {
       ctx.save();
@@ -1756,8 +1687,7 @@ class TokenCropperApp extends BaseApplication {
     drawFrame(
       ctx,
       this.frameImage,
-      size,
-      this.frameColor
+      size
     );
 
     return canvas;
@@ -1828,8 +1758,7 @@ class TokenCropperApp extends BaseApplication {
           name,
           source: this.source,
           src: finalPath,
-          crop: this.crop,
-          frameColor: this.frameColor
+          crop: this.crop
         });
       } else {
         await requestAppearanceSave({
@@ -1838,7 +1767,6 @@ class TokenCropperApp extends BaseApplication {
           name,
           source: this.source,
           crop: this.crop,
-          frameColor: this.frameColor,
           blob
         });
       }
@@ -1858,8 +1786,16 @@ class TokenCropperApp extends BaseApplication {
     }
   }
 
-  static async #cancelCrop() {
-    await this.close();
+  static async #cancelCrop(event, target) {
+    if (target?.disabled) return;
+
+    if (target) target.disabled = true;
+
+    try {
+      await cancelCropperAndReturn(this);
+    } finally {
+      if (target) target.disabled = false;
+    }
   }
 }
 
@@ -1877,7 +1813,7 @@ function openCropper({actor, token, source, entry = null}) {
   }
 
   if (!frameConfig.frameEnabled || !frameConfig.framePath) {
-    notify("error", "Não encontrei a moldura padrão NPC do Tokenizer.");
+    notify("error", "Não encontrei a borda fixa do HoloSuite Token Wardrobe.");
     return null;
   }
 
@@ -1888,7 +1824,7 @@ function openCropper({actor, token, source, entry = null}) {
     entryId: entry?.id ?? "",
     name: entry?.name ?? displayNameFromSource(source),
     crop: entry?.crop ?? defaultCrop(),
-    frameColor: entry?.frameColor ?? DEFAULT_FRAME_COLOR
+    returnApp: appInstance?.rendered ? appInstance : null
   });
 
   cropper.render({force: true});
@@ -2442,7 +2378,7 @@ function registerWithHoloSuite(api = null) {
     premium: false,
     playerVisible: true,
     featureId: MODULE_ID,
-    description: "Cole uma arte, enquadre manualmente e use a moldura do Tokenizer.",
+    description: "Cole uma arte, enquadre manualmente e use a borda fixa do Wardrobe.",
     open: () => openWardrobe()
   });
 

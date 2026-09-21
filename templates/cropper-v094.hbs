@@ -9,7 +9,7 @@
       </div>
       <span class="twl-tokenizer-chip is-ok">
         <i class="fa-solid fa-circle"></i>
-        Borda padrão NPC do Tokenizer
+        Borda fixa do módulo
       </span>
     </header>
 
@@ -39,44 +39,6 @@
       <strong data-role="zoom-value">{{zoomPercent}}%</strong>
     </div>
 
-    <section class="twl-frame-color-panel">
-      <div class="twl-frame-color-head">
-        <div>
-          <span class="twl-kicker">COR DA BORDA</span>
-          <strong>Textura marmorizada preservada</strong>
-        </div>
-
-        <div class="twl-frame-color-inputs">
-          <input
-            data-role="frame-color"
-            type="color"
-            value="{{frameColor}}"
-            aria-label="Cor da borda">
-
-          <input
-            data-role="frame-color-hex"
-            type="text"
-            value="{{frameColor}}"
-            maxlength="7"
-            spellcheck="false"
-            aria-label="Cor HEX da borda">
-        </div>
-      </div>
-
-      <div class="twl-color-presets">
-        {{#each frameColorPresets}}
-          <button
-            type="button"
-            data-role="frame-preset"
-            data-color="{{value}}"
-            title="{{label}} — {{value}}"
-            style="--twl-preset-color: {{value}};">
-            <span></span>
-            {{label}}
-          </button>
-        {{/each}}
-      </div>
-    </section>
 
     <div class="twl-source-note">
       <i class="fa-solid fa-link"></i>
@@ -94,7 +56,7 @@
       Imagem inteira
     </button>
     <span class="twl-spacer"></span>
-    <button type="button" data-action="cancelCrop">Cancelar</button>
+    <button type="button" data-action="cancelCrop" title="Descartar este enquadramento e voltar às aparências">Cancelar</button>
     <button class="twl-primary" type="button" data-action="saveCrop">
       <i class="fa-solid fa-check"></i>
       Salvar aparência

@@ -1,11 +1,4 @@
-# MASS TEST REPORT — HoloSuite Token Wardrobe v0.9.2
-
-## Alvo de compatibilidade
-
-- Foundry VTT: 13.351
-- Tokenizer: 5.0.3
-- HoloSuite Core
-- Socketlib
+# MASS TEST REPORT — HoloSuite Token Wardrobe v0.9.4
 
 ## Resultado
 
@@ -13,54 +6,41 @@
 
 ```text
 HoloSuite Token Wardrobe | Ready
-HoloSuite Token Wardrobe | Enabled Tokenizer UI for players; uploads remain GM-relayed.
 {
   "tests": "PASS",
-  "permissionOwnerAutonomy": "PASS",
-  "neutralTokenTargeting": "PASS",
-  "noForcedCanvasControl": "PASS",
-  "silentAppearanceRelay": "PASS",
-  "silentGalleryFallback": "PASS",
-  "relaySwitch": "PASS",
-  "directSwitch": "PASS",
-  "unauthorizedMatrix": "PASS",
-  "authenticatedSocketSender": "PASS",
-  "senderSpoofBlocked": "PASS",
-  "oversizedUploadBlock": "PASS",
-  "tokenizerDisablePlayerRepair": "PASS",
-  "tokenizerDirectoryRepair": "PASS",
-  "tokenizerStandaloneBridge": "PASS",
-  "tokenizerApplyEnabledWithoutFilesUpload": "PASS",
-  "tokenizerFileBrowseStillFalse": "PASS",
-  "noGlobalFilePickerMonkeypatch": "PASS",
-  "discordSignedUrl": "PASS",
-  "pinterestDirectUrl": "PASS",
-  "migrationV4": "PASS",
-  "maxGalleryLimit": "PASS",
-  "randomizedCropCases": 5000,
-  "randomizedColorCases": 1000,
-  "zoomOut10To600": "PASS",
-  "fitImage16x9": "PASS",
-  "fitImage9x16": "PASS",
-  "fitImageUltraWide": "PASS",
-  "tokenizer503MarbleTint": "PASS",
-  "tokenizer503ColorBlend": "PASS",
-  "tokenizerCustomTintFrame": "PASS",
-  "ownedRelayTokenInDropdown": "PASS",
-  "tokenizerBridgeReturnedPath": "PASS",
-  "tokenizerBridgeAvatarStateSync": "PASS",
-  "tokenizerBridgeNoCrossBleed": "PASS",
-  "texturedFrameColor": "PASS",
-  "noGmTokenizerBridgeBlocked": "PASS",
-  "circularClip": "PASS"
+  "fixedBorder": "PASS",
+  "colorSystemRemoved": "PASS",
+  "schemaV5ColorRemoval": "PASS",
+  "headerXClosesCropperOnly": "PASS",
+  "closeListenerNoDuplicate": "PASS",
+  "cancelReturnsToWardrobe": "PASS",
+  "cancelDoesNotPersist": "PASS",
+  "parentNotClosedByCancel": "PASS",
+  "ownerAutonomy": "PASS",
+  "tokenizerBridgeStateSync": "PASS",
+  "cropRandomCases": 5000,
+  "zoomFit": "PASS",
+  "urlSafety": "PASS",
+  "directoryTraversalBlock": "PASS",
+  "cacheBustedAssets": "PASS"
 }
 ```
 
-## Mudança da v0.9.2
+## Correções desta versão
 
-A borda padrão agora usa:
+- X da janela fecha explicitamente apenas o cropper.
+- Cancelar descarta o estado local e volta ao Wardrobe.
+- Cancelar não fecha o Wardrobe pai.
+- Cancelar não persiste crop/zoom.
+- sistema de cores removido do código, template, CSS e schema.
+- schema v5 remove `frameColor` das entradas antigas.
+- cache bust de JS/CSS/template para impedir UI antiga em cache.
+- borda fixa é byte-a-byte igual ao PNG fornecido pelo usuário.
 
-- `vtta-tokenizer.default-frame-neutral`
-- fallback: `modules/vtta-tokenizer/img/default-frame-npc.png`
+## Regressões
 
-Isso substitui a base padrão anterior e deixa o Wardrobe alinhado com a moldura NPC do Tokenizer.
+- Owner autonomy: PASS.
+- Tokenizer bridge state sync: PASS.
+- Socketlib relay: preservado.
+- zoom/crop: 5.000 casos aleatórios PASS.
+- URL/path hardening: PASS.

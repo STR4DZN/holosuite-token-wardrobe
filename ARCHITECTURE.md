@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.9.2
+# Arquitetura — HoloSuite Token Wardrobe v0.9.4
 
 ## Componentes
 
@@ -11,7 +11,6 @@ Render local:
 2. crop/zoom/pan;
 3. clip circular;
 4. frame;
-5. frameColor;
 6. WEBP.
 
 ### Silent GM Relay
@@ -90,7 +89,6 @@ Schema v4:
 - processor
 - processedAt
 - crop
-- frameColor
 
 ## Limites
 
@@ -182,3 +180,31 @@ A moldura base padrão do Wardrobe agora vem de:
 - fallback: `modules/vtta-tokenizer/img/default-frame-npc.png`
 
 Isso torna a borda padrão alinhada com a moldura NPC do próprio Tokenizer.
+
+
+## Fixed border image
+
+A borda deixou de depender de cor/tint.
+O render final usa diretamente um asset fixo do módulo:
+
+- `modules/holosuite-token-wardrobe/assets/fixed-border.png`
+
+`drawFrame()` agora faz apenas `ctx.drawImage(frameImage, 0, 0, size, size)`.
+
+
+## Cropper close semantics
+
+- Header X → `app.close()` somente.
+- Cancelar → `cancelCropperAndReturn(app)`.
+- Cancelar nunca persiste o estado local do cropper.
+- Se o Wardrobe pai ainda estiver renderizado, ele é trazido à frente.
+- Se não estiver, ele é reaberto para o mesmo Actor/Token.
+
+## Cache bust
+
+v0.9.4 usa:
+- `scripts/main-v094.js`
+- `styles/token-wardrobe-v094.css`
+- `templates/cropper-v094.hbs`
+
+Isso evita reaproveitar a interface antiga com seletor de cores.

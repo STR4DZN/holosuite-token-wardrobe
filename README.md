@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.9.2
+# HoloSuite Token Wardrobe v0.9.4
 
 Micro-módulo para Foundry VTT 13.351 integrado ao HoloSuite Core e ao Tokenizer.
 
@@ -118,7 +118,6 @@ O cropper agora permite zoom de **10% a 600%**.
 
 O arquivo final usa exatamente o mesmo zoom/crop do preview.
 
-Também foi corrigido um caminho antigo do render final que podia ignorar a `frameColor` escolhida.
 
 
 ## v0.8.2 — sem highlight/glow ao escolher token
@@ -184,3 +183,37 @@ Alteração pedida: a borda padrão agora usa a base do Tokenizer:
 Isso substitui a base padrão anterior.
 
 A lógica de cor, crop, relay e bridge do Tokenizer continua a mesma.
+
+
+## v0.9.3 — sem sistema de cores, com borda fixa
+
+Mudança pedida: o sistema de cores da borda foi removido.
+
+Agora o Wardrobe usa apenas uma borda fixa embutida no módulo:
+
+- `modules/holosuite-token-wardrobe/assets/fixed-border.png`
+
+Consequências:
+- não existe mais seleção de cor no cropper;
+- o preview e o arquivo final usam exatamente a mesma imagem de borda;
+- o fluxo fica mais simples e previsível.
+
+O restante do módulo foi mantido:
+- bridge do Tokenizer;
+- relay autenticado;
+- crop manual;
+- zoom 10%–600%;
+- imagem inteira.
+
+
+## v0.9.4 — cropper corrigido
+
+- sistema de cores removido também do código e do schema;
+- schema v5 migra entradas antigas e descarta `frameColor`;
+- novo JS/CSS/template com nomes v0.9.4 para evitar cache da UI antiga;
+- X da janela fecha explicitamente apenas o cropper;
+- Cancelar descarta o crop/zoom não salvo e retorna ao Wardrobe;
+- Salvar continua fechando o cropper após persistir.
+
+A borda continua sendo exclusivamente:
+`modules/holosuite-token-wardrobe/assets/fixed-border.png`.
