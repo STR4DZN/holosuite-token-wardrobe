@@ -6,9 +6,9 @@
       <h1>{{#if actor}}{{actor.name}}{{else}}Aparências{{/if}}</h1>
     </div>
 
-    <span class="twl-tokenizer-chip {{tokenizerClass}}">
+    <span class="twl-status-chip {{wardrobeClass}}">
       <i class="fa-solid fa-circle"></i>
-      {{tokenizerStatus}}
+      {{wardrobeStatus}}
     </span>
   </header>
 
@@ -75,21 +75,21 @@
                 data-role="url-input"
                 placeholder="Cole o link direto da imagem..."
                 autocomplete="off">
-              <button type="button" data-action="prepareUrl" {{#unless tokenizerReady}}disabled{{/unless}}>
+              <button type="button" data-action="prepareUrl" {{#unless wardrobeReady}}disabled{{/unless}}>
                 <i class="fa-solid fa-crop-simple"></i>
                 Preparar
               </button>
             </div>
 
             {{#if canBrowseFiles}}
-              <button class="twl-file-button" type="button" data-action="pickFile" {{#unless tokenizerReady}}disabled{{/unless}}>
+              <button class="twl-file-button" type="button" data-action="pickFile" {{#unless wardrobeReady}}disabled{{/unless}}>
                 <i class="fa-solid fa-folder-open"></i>
                 Escolher imagem do Foundry
               </button>
             {{/if}}
 
-            {{#unless tokenizerReady}}
-              <small>Ative o Tokenizer, sua borda padrão e tenha FILES_UPLOAD local ou um GM ativo para relay.</small>
+            {{#unless wardrobeReady}}
+              <small>O Wardrobe precisa de FILES_UPLOAD local ou de um GM ativo para o relay técnico.</small>
             {{else}}
               {{#if relayUpload}}
                 <small>Players usam URL sem acesso aos arquivos. O upload é feito automaticamente por relay técnico.</small>
