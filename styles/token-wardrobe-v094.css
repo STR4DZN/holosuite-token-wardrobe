@@ -106,7 +106,7 @@
   font-size: 11px;
 }
 
-.twl-tokenizer-chip {
+.twl-status-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -120,21 +120,21 @@
   white-space: nowrap;
 }
 
-.twl-tokenizer-chip i {
+.twl-status-chip i {
   font-size: 7px;
 }
 
-.twl-tokenizer-chip.is-ok {
+.twl-status-chip.is-ok {
   border-color: rgba(104,230,166,.32);
   color: #8fe8ba;
 }
 
-.twl-tokenizer-chip.is-warn {
+.twl-status-chip.is-warn {
   border-color: rgba(242,198,109,.34);
   color: var(--twl-warning);
 }
 
-.twl-tokenizer-chip.is-error {
+.twl-status-chip.is-error {
   border-color: rgba(255,129,129,.32);
   color: var(--twl-danger);
 }
@@ -510,7 +510,7 @@
     grid-template-columns: repeat(2, minmax(0,1fr));
   }
 
-  .twl-tokenizer-chip {
+  .twl-status-chip {
     max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
