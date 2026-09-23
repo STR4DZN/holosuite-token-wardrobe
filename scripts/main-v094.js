@@ -1352,7 +1352,7 @@ class TokenCropperApp extends BaseApplication {
       zoomMax: MAX_CROP_ZOOM,
       frameReady: this.frameConfig.ready,
       framePath: this.frameConfig.framePath,
-      frameAlgorithm: this.frameConfig.tintAlgorithm,
+      frameAlgorithm: this.frameConfig.frameAlgorithm,
       canUpload: this.frameConfig.canUpload,
       frameEnabled: this.frameConfig.frameEnabled
     };
