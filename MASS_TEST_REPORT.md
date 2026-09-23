@@ -1,46 +1,28 @@
 # MASS TEST REPORT — HoloSuite Token Wardrobe v0.9.4
 
-## Resultado
+## Escopo desta refatoração
 
-**PASS**
+- remoção completa da integração runtime com editores externos;
+- armazenamento próprio;
+- borda própria;
+- cropper próprio;
+- output próprio;
+- relay GM preservado apenas para operações do Wardrobe.
+
+## Validações estáticas
 
 ```text
-HoloSuite Token Wardrobe | Ready
-{
-  "tests": "PASS",
-  "fixedBorder": "PASS",
-  "colorSystemRemoved": "PASS",
-  "schemaV5ColorRemoval": "PASS",
-  "headerXClosesCropperOnly": "PASS",
-  "closeListenerNoDuplicate": "PASS",
-  "cancelReturnsToWardrobe": "PASS",
-  "cancelDoesNotPersist": "PASS",
-  "parentNotClosedByCancel": "PASS",
-  "ownerAutonomy": "PASS",
-  "tokenizerBridgeStateSync": "PASS",
-  "cropRandomCases": 5000,
-  "zoomFit": "PASS",
-  "urlSafety": "PASS",
-  "directoryTraversalBlock": "PASS",
-  "cacheBustedAssets": "PASS"
-}
+standaloneRuntime: PASS
+externalEditorHooks: 0
+externalEditorMonkeypatches: 0
+externalEditorSettingsReads: 0
+ownUploadDirectory: PASS
+fixedBorder: PASS
+outputSize512: PASS
+socketRelayAuth: PRESERVED
+tokenTextureUpdateScope: texture.src only
 ```
 
-## Correções desta versão
+## Observação
 
-- X da janela fecha explicitamente apenas o cropper.
-- Cancelar descarta o estado local e volta ao Wardrobe.
-- Cancelar não fecha o Wardrobe pai.
-- Cancelar não persiste crop/zoom.
-- sistema de cores removido do código, template, CSS e schema.
-- schema v5 remove `frameColor` das entradas antigas.
-- cache bust de JS/CSS/template para impedir UI antiga em cache.
-- borda fixa é byte-a-byte igual ao PNG fornecido pelo usuário.
-
-## Regressões
-
-- Owner autonomy: PASS.
-- Tokenizer bridge state sync: PASS.
-- Socketlib relay: preservado.
-- zoom/crop: 5.000 casos aleatórios PASS.
-- URL/path hardening: PASS.
+Este relatório registra validações de código e invariantes do repositório. O teste visual final deve ser executado dentro do Foundry VTT v13.351 com GM e Player Owner.
