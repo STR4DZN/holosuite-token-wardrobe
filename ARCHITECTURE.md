@@ -1,85 +1,97 @@
 # Arquitetura — HoloSuite Token Wardrobe v0.9.4
 
+## Objetivo
+
+Pipeline de arte de token totalmente próprio e isolado.
+
 ## Componentes
 
 ### Wardrobe UI
-Gerencia galeria do Actor Owner e abre o cropper.
+
+Seleciona Actor/Token, mostra a galeria e inicia o editor.
 
 ### Cropper
-Render local:
-1. carrega source;
-2. crop/zoom/pan;
-3. clip circular;
-4. frame;
-6. WEBP.
+
+Pipeline local:
+
+1. carrega a imagem de origem;
+2. normaliza crop/zoom/pan;
+3. renderiza preview 512×512;
+4. aplica clip circular;
+5. desenha a borda fixa do módulo;
+6. gera WEBP 512×512.
+
+### Armazenamento
+
+Setting próprio:
+
+```text
+holosuite-token-wardrobe.uploadDirectory
+```
+
+Default:
+
+```text
+[data] holosuite-token-wardrobe/tokens
+```
+
+Nenhuma configuração de outro módulo é lida.
 
 ### Silent GM Relay
+
 Transporte: `socketlib.executeAsGM()`.
 
 Ações permitidas:
+
 - `saveAppearance`;
 - `saveGalleryState`;
-- `switchTexture`;
-- `tokenizerUpload`.
+- `switchTexture`.
 
-Toda ação valida ownership no GM.
+Toda ação valida o requester autenticado e o ownership do Actor.
 
 ## saveAppearance
 
 Player:
-- renderiza WEBP;
+
+- renderiza o WEBP final;
 - envia base64 + metadata.
 
 GM:
+
 - valida Owner;
 - sanitiza filename;
-- garante diretório;
+- garante o diretório próprio;
 - faz upload;
-- grava gallery flag.
-
-Nenhuma confirmação humana.
+- grava a galeria no flag do Actor.
 
 ## saveGalleryState
 
-Fallback para Foundry/system que impeça `Actor.setFlag()` no cliente Owner.
+Fallback quando o cliente Owner não consegue persistir diretamente.
 
-GM normaliza todas as entradas antes de persistir.
+O GM normaliza todas as entradas antes de salvar.
 
 ## switchTexture
 
-Se Player não pode alterar TokenDocument diretamente:
+Quando o Player não pode atualizar o TokenDocument diretamente:
+
 - GM valida Owner;
-- confirma que `src` pertence à galeria;
+- confirma que a imagem pertence à galeria;
 - altera somente `texture.src`.
 
-## Tokenizer Compatibility Bridge
+## Frame
 
-Motivo: Tokenizer oficial usa `game.user.can("FILES_UPLOAD")` para:
-- decidir `canUpload`;
-- desabilitar Apply;
-- opcionalmente desabilitar o módulo para Players.
+Asset único:
 
-Integração:
-- GM coloca `vtta-tokenizer.disable-player=false`;
-- hooks `renderTokenizer` e `renderApplicationV2`;
-- detecta instância Tokenizer;
-- exige Actor Owner + GM ativo;
-- sobrescreve apenas `updateToken()` e `updateAvatar()` da instância;
-- esses métodos enviam o Blob ao relay `tokenizerUpload`;
-- `_prepareContext()` da instância passa `canUpload=true`;
-- botão `#ok` é habilitado.
+```text
+modules/holosuite-token-wardrobe/assets/fixed-border.png
+```
 
-Não há monkeypatch de `game.user.can`, FilePicker global ou permissões Foundry.
-
-## Diretórios
-
-Antes de upload, `ensureDirectoryExists()` tenta criar cada segmento via `FilePicker.createDirectory`.
-
-Paths com traversal não são aceitos por `parseDirectorySetting`/sanitização de entrada de upload.
+O preview e o WEBP final usam o mesmo arquivo.
 
 ## Schema
 
-Schema v4:
+Schema v5:
+
 - id
 - name
 - source
@@ -92,119 +104,30 @@ Schema v4:
 
 ## Limites
 
-- máximo 100 aparências;
-- base64 relay máximo ~28 MB codificado;
-- filenames sanitizados;
-- URL protocols perigosos bloqueados;
-- gallery source precisa ser http/https ou imagem local suportada.
+- máximo configurável de aparências, limitado internamente a 100;
+- relay base64 limitado a ~28 MB codificado;
+- output fixo 512×512;
+- zoom 0.10..6.00;
+- protocolos perigosos e traversal de paths são bloqueados.
 
-
-## Autenticação do relay
+## Autenticação
 
 O Player não envia `requesterId`.
 
-A função registrada no socketlib é uma função normal e obtém o remetente somente de:
+A função registrada no socketlib obtém o remetente apenas de:
 
 ```js
 this.socketdata.userId
 ```
 
-Sem contexto autenticado, a ação falha com `TW_AUTH_UNAUTHENTICATED`.
-
-Isso impede spoof do ID de outro Player no payload.
-
-
-## Zoom-out
-
-`crop.zoom` passa a aceitar `0.10..6.00`.
-
-A escala de referência continua sendo `cover` em `zoom=1`.
-
-`computeFitZoom()` calcula:
-
-```text
-containScale / coverScale
-```
-
-Isso permite ao botão `Imagem inteira` chegar ao enquadramento que mostra a imagem inteira sem alterar o modelo de dados.
-
-Em eixos cujo tamanho renderizado fica menor que o canvas, `pan=0` é imposto para manter centralização previsível.
-
+Sem contexto autenticado, a operação falha.
 
 ## Neutral token targeting
 
-O Wardrobe diferencia:
-- **identificar um TokenDocument** para trocar `texture.src`;
-- **controlar um Token no Canvas**.
+Identificar um TokenDocument não controla nem seleciona o token no Canvas.
 
-A primeira operação não exige a segunda.
+O módulo não chama `token.control()`.
 
-Nenhum fluxo do Wardrobe chama `token.control()` ou `canvas.tokens.controlled = ...`.
-Isso evita ativar overlays visuais de seleção/hover do Foundry/LANCER.
+## Independência
 
-
-## Tokenizer 5.0.3 frame fidelity
-
-Referência: `src/tokenizer/Layer.js::applyTint()` do Tokenizer 5.0.3.
-
-O Wardrobe reproduz:
-- marble source;
-- `source-atop` para formar a cópia colorida;
-- blend `color` sobre o frame original;
-- `source-over` para compor o frame final.
-
-O antigo `globalAlpha = 0.82` foi removido.
-
-A imagem-base vem de `vtta-tokenizer.default-frame-tint`, cujo default no 5.0.3 é:
-`modules/vtta-tokenizer/img/plain-marble-frame-grey.png`.
-
-
-## Tokenizer bridge state sync
-
-O bridge do Tokenizer não só envia o blob para o relay do GM:
-ele também precisa devolver o path salvo e sincronizar esse path em múltiplos pontos
-porque implementações/integrações do Tokenizer podem ler:
-- `tokenOptions.tokenFilename`;
-- `tokenOptions.avatarFilename`;
-- `avatarOptions.avatarFilename`;
-- propriedades diretas do app.
-
-A função `syncTokenizerUploadState(app, kind, path)` centraliza isso.
-
-
-## Default frame base
-
-A moldura base padrão do Wardrobe agora vem de:
-
-- setting: `vtta-tokenizer.default-frame-neutral`
-- fallback: `modules/vtta-tokenizer/img/default-frame-npc.png`
-
-Isso torna a borda padrão alinhada com a moldura NPC do próprio Tokenizer.
-
-
-## Fixed border image
-
-A borda deixou de depender de cor/tint.
-O render final usa diretamente um asset fixo do módulo:
-
-- `modules/holosuite-token-wardrobe/assets/fixed-border.png`
-
-`drawFrame()` agora faz apenas `ctx.drawImage(frameImage, 0, 0, size, size)`.
-
-
-## Cropper close semantics
-
-- Header X → `app.close()` somente.
-- Cancelar → `cancelCropperAndReturn(app)`.
-- Cancelar nunca persiste o estado local do cropper.
-- Se o Wardrobe pai ainda estiver renderizado, ele é trazido à frente.
-- Se não estiver, ele é reaberto para o mesmo Actor/Token.
-
-## Cache bust
-
-v0.9.4 usa:
-- `scripts/main-v094.js`
-- `styles/token-wardrobe-v094.css`
-- `templates/cropper-v094.hbs`
-
-Isso evita reaproveitar a interface antiga com seletor de cores.
+O módulo não registra hooks de aplicações de editores externos, não substitui métodos de terceiros e não lê settings de terceiros.
