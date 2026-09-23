@@ -1,7 +1,7 @@
 {
   "id": "holosuite-token-wardrobe",
   "title": "HoloSuite Token Wardrobe",
-  "description": "HoloSuite token art manager with fixed border, explicit cropper close/cancel behavior, cache-busted UI assets, owner autonomy, and Tokenizer 5.0.3 bridge.",
+  "description": "Standalone HoloSuite token artwork manager with manual crop, fixed border, isolated storage, owner autonomy, and authenticated GM relay.",
   "version": "0.9.4",
   "authors": [
     {
@@ -37,10 +37,6 @@
       },
       {
         "id": "socketlib",
-        "type": "module"
-      },
-      {
-        "id": "vtta-tokenizer",
         "type": "module"
       }
     ]
