@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.10.3 — Prism
+# HoloSuite Token Wardrobe v0.10.4 — Prism
 
 Módulo standalone de gerenciamento de artes de token para Foundry VTT v13.351.
 
@@ -120,3 +120,10 @@ Alguns sites bloqueiam carregamento externo por CORS. Nesse caso, use um arquivo
 
 - mínimo: v13
 - verificado: v13.351
+
+
+### Preparar e reenquadrar
+
+O editor indica quando está carregando a imagem. Você pode **Cancelar** ou usar o **X** durante o carregamento. Se o link original deixou de funcionar, use **Tentar novamente** ou **Trocar imagem original**. Salvar só fica disponível após carregar a imagem e a borda.
+
+**Reenquadrar imagem** abre a fonte original e salva alterações na mesma entrada da biblioteca, preservando favorito e posição. O nome e o recorte em edição são mantidos durante renders. Depois de salvar, use **Aplicar no token** para utilizar a versão atualizada. Durante o salvamento, os controles ficam bloqueados até a operação terminar; uma falha mantém o editor aberto para tentar novamente.

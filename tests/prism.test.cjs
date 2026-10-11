@@ -25,7 +25,7 @@ function environment(){
   const actorMap=new Map([[actor.id,actor],[other.id,other]]);
   class Application {
     constructor(options={}){this.options=options;this.rendered=false;this.element=w.document.createElement('section');this.element.className=this.constructor.DEFAULT_OPTIONS.classes.join(' ');this.pending=Promise.resolve();this.element.addEventListener('click',e=>{const target=e.target.closest('[data-action]');if(target&&!target.disabled){const action=this.constructor.DEFAULT_OPTIONS.actions[target.dataset.action];if(action)this.action=Promise.resolve(action.call(this,e,target))}});}
-    render(){this.rendered=true;w.document.body.append(this.element);this.pending=this.pending.then(async()=>{const c=await this._prepareContext();this.element.innerHTML=(this instanceof w.__wardrobe.TokenCropperApp?cropTemplate:template)(c);await this._onRender(c,{});});return this;}
+    render(){this.rendered=true;w.document.body.append(this.element);this.pending=this.pending.then(async()=>{const c=await this._prepareContext();this.element.innerHTML='<header class=window-header><button type=button aria-label="Fechar janela">×</button></header>'+(this instanceof w.__wardrobe.TokenCropperApp?cropTemplate:template)(c);this.window={close:this.element.querySelector('[aria-label="Fechar janela"]')};this.window.close.addEventListener('click',()=>{this.action=this.close()});await this._onRender(c,{});});return this;}
     async _onRender(){}async close(){this.rendered=false;this.element.remove()}bringToFront(){}
   }
   w.foundry={applications:{api:{ApplicationV2:Application,HandlebarsApplicationMixin:cls=>cls,DialogV2:{async input(){return {value:'Renomeada'}},async confirm(){return w.__confirm===true}}}},utils:{randomID:()=>Math.random().toString(36).slice(2),escapeHTML:Handlebars.escapeExpression}};
@@ -36,7 +36,7 @@ function environment(){
   w.Image=class{constructor(){this.naturalWidth=512;this.naturalHeight=512}set src(v){this._src=v;queueMicrotask(()=>this.onload?.())}};
   w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({},{get:()=>()=>{}});
   w.HTMLElement.prototype.setPointerCapture=()=>{};w.HTMLElement.prototype.releasePointerCapture=()=>{};
-  w.eval(source+'\nglobalThis.__wardrobe={TokenWardrobeApp,TokenCropperApp,wardrobeApplications,getWardrobeTheme,applyWardrobePreferences};');
+  w.eval(source+'\nglobalThis.__wardrobe={TokenWardrobeApp,TokenCropperApp,wardrobeApplications,getWardrobeTheme,applyWardrobePreferences,openCroppers,loadImage};');
   hooks.get('init')();
   const app=new w.__wardrobe.TokenWardrobeApp({actorId:actor.id,tokenId:token.id});
   const flush=async()=>{for(let i=0;i<3;i++){await app.action;await app.pending;await Promise.resolve()}};
@@ -110,4 +110,111 @@ test('Seleção durante aplicação não marca a nova prévia como Em uso nem pe
   assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/eclipse.webp');
   assert.equal(e.app.element.querySelector('[data-role=selection-status]').textContent,'Prévia · ainda não aplicada');
   assert(!e.app.element.querySelector('[data-action=switchImage]').disabled);e.dom.window.close();
+});
+
+
+async function openEditor(e,id='a1'){
+  await e.click('[data-action=selectImage][data-id='+id+']');await e.click('[data-action=editCrop]');
+  const crop=[...e.w.__wardrobe.wardrobeApplications].find(app=>app instanceof e.w.__wardrobe.TokenCropperApp);
+  assert(crop);await crop.pending;await crop.pendingImageLoad;return crop;
+}
+function installUpload(e,upload=async()=>({path:'tokens/updated.webp'})){
+  e.w.FilePicker={upload};
+  e.w.HTMLCanvasElement.prototype.toBlob=function(callback){callback(new e.w.Blob(['image'],{type:'image/webp'}))};
+}
+
+test('Cancelar durante carregamento aborta imagem e preserva DOM, busca, rolagem e biblioteca',async()=>{
+  const e=environment();e.app.render();await e.flush();const source=e.app.element.querySelector('[data-role=search]');source.value='vanguarda';source.dispatchEvent(new e.w.Event('input'));
+  const scroll=e.app.element.querySelector('.twl-gallery-scroll');scroll.scrollTop=54;scroll.dispatchEvent(new e.w.Event('scroll'));const previous=JSON.stringify(e.actor.state);
+  const requests=[];e.w.Image=class{set src(v){requests.push(v)}};
+  const crop=new e.w.__wardrobe.TokenCropperApp({actor:e.actor,token:e.token,source:'https://images.example/slow.png',returnApp:e.app});crop.render();await crop.pending;
+  assert.equal(crop.imageState,'loading');assert(crop.element.querySelector('[data-action=saveCrop]').disabled);assert(!crop.element.querySelector('[data-action=cancelCrop]').disabled);
+  crop.element.querySelector('[data-action=cancelCrop]').click();await crop.action;await crop.pendingImageLoad;
+  assert(!crop.rendered);assert(crop.loadController.signal.aborted);assert(requests.includes(''));assert(e.app.rendered);
+  assert.equal(e.app.element.querySelector('[data-role=search]'),source);assert.equal(scroll.scrollTop,54);assert.equal(JSON.stringify(e.actor.state),previous);assert.equal(e.updates.length,0);e.dom.window.close();
+});
+
+test('X nativo fecha durante carregamento sem reabrir janela nem emitir erro tardio',async()=>{
+  const e=environment();e.w.Image=class{set src(v){}};
+  const crop=new e.w.__wardrobe.TokenCropperApp({actor:e.actor,token:e.token,source:'art/vanguarda.png'});crop.render();await crop.pending;
+  crop.window.close.click();await crop.closePending;await crop.pendingImageLoad;
+  assert(!crop.rendered);assert(!e.app.rendered);assert.equal(e.notifications.length,0);assert(!e.w.__wardrobe.wardrobeApplications.has(crop));e.dom.window.close();
+});
+
+test('Erro de imagem permanece recuperável; retry e troca de original mantêm identidade da entrada',async()=>{
+  const e=environment();e.app.render();await e.flush();const Image=e.w.Image;
+  e.w.Image=class{set src(v){queueMicrotask(()=>v.includes('art/')?this.onerror?.():this.onload?.())}};e.w.console.warn=()=>{};
+  await e.click('[data-action=editCrop]');const crop=[...e.w.__wardrobe.wardrobeApplications].find(x=>x instanceof e.w.__wardrobe.TokenCropperApp);await crop.pending;await crop.pendingImageLoad;
+  assert(crop.rendered);assert.equal(crop.imageState,'error');assert(crop.element.querySelector('[data-action=saveCrop]').disabled);assert(!crop.element.querySelector('[data-action=retryImage]').hidden);
+  assert.match(crop.element.querySelector('[data-role=image-status]').textContent,/Não foi possível carregar/);
+  e.w.Image=Image;crop.element.querySelector('[data-action=retryImage]').click();await crop.action;
+  assert.equal(crop.imageState,'ready');assert(!crop.element.querySelector('[data-action=saveCrop]').disabled);
+  const input=crop.element.querySelector('[data-role=replacement-source]');input.value='https://images.example/new.png';crop.element.querySelector('[data-action=replaceSource]').click();await crop.action;
+  assert.equal(crop.source,'https://images.example/new.png');assert.equal(crop.entryId,'a1');assert.equal(e.actor.state.gallery[0].source,'art/vanguarda.png');assert.equal(crop.imageState,'ready');await crop.close();e.dom.window.close();
+});
+
+test('Reenquadrar usa a original e salva na mesma entrada, preservando favorito, ordem e textura do token',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);assert.equal(crop.source,'art/vanguarda.png');assert.equal(crop.returnApp,e.app);
+  const zoom=crop.element.querySelector('[data-role=zoom]');zoom.value='2';zoom.dispatchEvent(new e.w.Event('input'));
+  const name=crop.element.querySelector('[data-role=crop-name]');name.value='Vanguarda revisada';name.dispatchEvent(new e.w.Event('input'));
+  installUpload(e);crop.element.querySelector('[data-action=saveCrop]').click();await crop.action;await e.flush();
+  assert.equal(e.actor.state.gallery.length,3);const entry=e.actor.state.gallery.find(x=>x.id==='a1');assert.equal(entry.name,'Vanguarda revisada');assert.equal(entry.favorite,true);assert.equal(entry.order,0);assert.equal(entry.crop.zoom,2);assert.match(entry.src,/tokens\/updated.webp/);assert.equal(entry.source,'art/vanguarda.png');
+  assert(!crop.rendered);assert.equal(e.token.document.texture.src,'tokens/vanguarda.webp');assert.equal(e.updates.length,0);assert.equal(e.app.selectedId,'a1');assert.match(e.app.element.querySelector('.twl-preview-stage img').src,/updated.webp/);e.dom.window.close();
+});
+
+test('Falha de upload mantém editor e recorte para nova tentativa',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);crop.crop.zoom=2;const previous=JSON.stringify(e.actor.state);
+  installUpload(e,async()=>{throw new Error('upload failed')});e.w.console.error=()=>{};
+  crop.element.querySelector('[data-action=saveCrop]').click();await crop.action;
+  assert(crop.rendered);assert.equal(crop.crop.zoom,2);assert.equal(crop.savePending,false);assert(!crop.element.querySelector('[data-action=saveCrop]').disabled);assert(!crop.window.close.disabled);assert.equal(JSON.stringify(e.actor.state),previous);await crop.close();e.dom.window.close();
+});
+
+test('Salvar bloqueia cancelar e X até terminar, com um único upload e fechamento',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);
+  let finish;const uploading=new Promise(resolve=>{finish=resolve});let uploads=0;installUpload(e,async()=>{uploads++;await uploading;return {path:'tokens/updated.webp'}});
+  crop.element.querySelector('[data-action=saveCrop]').click();const action=crop.action;for(let i=0;i<10;i++)await Promise.resolve();
+  assert(crop.savePending);assert(crop.element.querySelector('[data-action=cancelCrop]').disabled);assert(crop.window.close.disabled);await crop.close();assert(crop.rendered);
+  crop.element.querySelector('[data-action=saveCrop]').click();finish();await action;assert.equal(uploads,1);assert(!crop.rendered);e.dom.window.close();
+});
+
+test('Reabrir a mesma aparência foca o editor atual; entradas diferentes têm IDs únicos',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);crop.crop.zoom=2;
+  await e.click('[data-action=editCrop]');assert.equal(e.w.__wardrobe.openCroppers.size,1);assert.equal(crop.crop.zoom,2);
+  await e.click('[data-action=selectImage][data-id=a2]');await e.click('[data-action=editCrop]');const other=[...e.w.__wardrobe.openCroppers.values()].find(x=>x!==crop);await other.pending;await other.pendingImageLoad;assert.notEqual(crop.options.id,other.options.id);
+  await crop.close();await other.close();assert.equal(e.w.__wardrobe.openCroppers.size,0);e.dom.window.close();
+});
+
+test('Re-render preserva nome e recorte, reutiliza imagens já carregadas',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);const image=crop.sourceImage;
+  const name=crop.element.querySelector('[data-role=crop-name]');name.value='Nome em edição';name.dispatchEvent(new e.w.Event('input'));crop.crop.zoom=2;
+  crop.render();await crop.pending;assert.equal(crop.sourceImage,image);assert.equal(crop.crop.zoom,2);assert.equal(crop.element.querySelector('[data-role=crop-name]').value,'Nome em edição');assert.equal(crop.imageState,'ready');await crop.close();e.dom.window.close();
+});
+
+test('Carregamento tem prazo e suporta abortar sem aguardar resposta remota',async()=>{
+  const e=environment();e.w.Image=class{set src(v){}};
+  await assert.rejects(e.w.__wardrobe.loadImage('https://images.example/slow.png',{timeoutMs:10}),/TW_IMAGE_LOAD_TIMEOUT/);
+  const controller=new e.w.AbortController();const request=e.w.__wardrobe.loadImage('https://images.example/slow.png',{signal:controller.signal});controller.abort();await assert.rejects(request,/TW_IMAGE_LOAD_ABORTED/);e.dom.window.close();
+});
+
+
+test('Arrasto respeita escala da imagem quadrada em área de preview retangular',async()=>{
+  const e=environment();e.app.render();await e.flush();const crop=await openEditor(e);crop.crop.zoom=2;
+  const canvas=crop.element.querySelector('[data-role=crop-canvas]');canvas.getBoundingClientRect=()=>({width:600,height:300});
+  canvas.dispatchEvent(new e.w.MouseEvent('pointerdown',{clientX:100,clientY:100}));canvas.dispatchEvent(new e.w.MouseEvent('pointermove',{clientX:130,clientY:130}));
+  assert(Math.abs(crop.crop.panX-51.2)<0.0001);assert(Math.abs(crop.crop.panY-51.2)<0.0001);
+  await crop.close();e.dom.window.close();
+});
+
+test('Falha ao fechar permite tentar novamente e não remove registro de editor aberto',async()=>{
+  const e=environment();e.w.Image=class{set src(v){}};
+  const crop=new e.w.__wardrobe.TokenCropperApp({actor:e.actor,token:e.token,source:'art/vanguarda.png'});crop.render();await crop.pending;
+  const Base=e.w.foundry.applications.api.ApplicationV2,close=Base.prototype.close;let attempt=0;Base.prototype.close=async function(options){if(attempt++===0)throw new Error('temporary close failure');return close.call(this,options)};
+  await assert.rejects(crop.close(),/temporary close failure/);assert(crop.rendered);assert.equal(crop.closed,false);assert.equal(crop.closePending,null);assert(e.w.__wardrobe.wardrobeApplications.has(crop));assert.equal(crop.imageState,'error');
+  await crop.close();assert(!crop.rendered);e.dom.window.close();
+});
+
+test('Preparar uma nova imagem cria só uma entrada e não modifica aparências existentes',async()=>{
+  const e=environment();e.app.render();await e.flush();const appearance=({id,name,favorite,source,src,order,crop})=>({id,name,favorite,source,src,order,crop});const previous=JSON.stringify(e.actor.state.gallery.map(appearance));
+  const crop=new e.w.__wardrobe.TokenCropperApp({actor:e.actor,token:e.token,source:'https://images.example/new.png',name:'Nova',returnApp:e.app});crop.render();await crop.pending;await crop.pendingImageLoad;installUpload(e);
+  crop.element.querySelector('[data-action=saveCrop]').click();await crop.action;await e.flush();assert.equal(e.actor.state.gallery.length,4);assert.equal(JSON.stringify(e.actor.state.gallery.slice(0,3).map(appearance)),previous);assert.equal(e.actor.state.gallery[3].name,'Nova');assert.equal(e.token.document.texture.src,'tokens/vanguarda.webp');assert(!crop.rendered);e.dom.window.close();
 });

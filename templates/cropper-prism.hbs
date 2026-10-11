@@ -3,7 +3,7 @@
   <div class="twl-cropper-scroll">
     <header class="twl-cropper-header">
       <div>
-        <span class="twl-kicker">ENQUADRAMENTO MANUAL</span>
+        <span class="twl-kicker">{{#if editing}}EDITAR APARÊNCIA{{else}}ENQUADRAMENTO MANUAL{{/if}}</span>
         <h2>Arraste, aproxime ou afaste</h2>
         <p>O que ficar fora do círculo será realmente removido.</p>
       </div>
@@ -18,9 +18,10 @@
       <input data-role="crop-name" type="text" value="{{name}}" maxlength="80">
     </label>
 
-    <div class="twl-crop-stage">
+    <div class="twl-crop-stage" aria-busy="true">
+      <div class="twl-image-status"><p data-role="image-status" role="status" aria-live="polite">Carregando imagem…</p><button type="button" data-action="retryImage" hidden>Tentar novamente</button></div>
       <canvas data-role="crop-canvas" width="512" height="512" tabindex="0" aria-label="Enquadrar imagem. Arraste ou use as setas do teclado."></canvas>
-      <div class="twl-crop-hint">
+      <div class="twl-crop-hint" hidden>
         <i class="fa-solid fa-hand"></i>
         Arraste ou use as setas
       </div>
@@ -34,7 +35,7 @@
         min="{{zoomMin}}"
         max="{{zoomMax}}"
         step="0.01"
-        value="{{zoom}}">
+        value="{{zoom}}" disabled>
       <i class="fa-solid fa-magnifying-glass-plus"></i>
       <strong data-role="zoom-value">{{zoomPercent}}%</strong>
     </div>
@@ -44,22 +45,23 @@
       <i class="fa-solid fa-link"></i>
       <span title="{{source}}">{{source}}</span>
     </div>
+    <details class="twl-replace-source"><summary>Trocar imagem original</summary><div><label class="twl-field"><span>Link direto da nova imagem</span><input type="url" data-role="replacement-source" placeholder="https://…/imagem.webp" autocomplete="off"></label><button type="button" data-action="replaceSource">Carregar imagem</button></div></details>
   </div>
 
   <footer class="twl-cropper-footer">
-    <button type="button" data-action="resetCrop" title="Voltar ao enquadramento preenchendo todo o token">
+    <button type="button" data-action="resetCrop" disabled title="Voltar ao enquadramento preenchendo todo o token">
       <i class="fa-solid fa-rotate-left"></i>
       Preencher círculo
     </button>
-    <button type="button" data-action="fitImage" title="Afastar até mostrar a imagem inteira">
+    <button type="button" data-action="fitImage" disabled title="Afastar até mostrar a imagem inteira">
       <i class="fa-solid fa-expand"></i>
       Imagem inteira
     </button>
     <span class="twl-spacer"></span>
     <button type="button" data-action="cancelCrop" title="Descartar este enquadramento e voltar às aparências">Cancelar</button>
-    <button class="twl-primary" type="button" data-action="saveCrop">
+    <button class="twl-primary" type="button" data-action="saveCrop" disabled>
       <i class="fa-solid fa-check"></i>
-      Salvar aparência
+      <span data-role="save-label">{{#if editing}}Salvar alterações{{else}}Salvar aparência{{/if}}</span>
     </button>
   </footer>
 </div>

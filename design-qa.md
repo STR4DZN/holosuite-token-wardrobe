@@ -60,3 +60,15 @@ final result: passed
 - Temas claro e escuro, formulário de adição sobre a biblioteca, fechamento desse painel com Escape, menu e fechamento nativos conferidos na fixture. As cores Prism foram mantidas.
 - Evidências locais: `../qa/prism-compacto-0103.jpg` e `../qa/prism-claro-0103.jpg`. São capturas do ambiente de verificação, com tokens de exemplo; não representam uma sessão real do Foundry conectada ao mundo do usuário.
 - `npm run check`, `npm test`, empacotamento e `git diff --check` passam. A integração com o servidor/socketlib real deve ser conferida na sessão Foundry.
+
+# Regressão 0.10.4 — alinhamento e Preparar aparência
+
+- Referências do usuário: `../upload/Screenshot_14(1).png` (seletor abaixo do botão de adicionar) e `../upload/Screenshot_12(2).png` (editor com área vazia e rolagem).
+- Consulta à API oficial de ApplicationV2 v13: https://foundryvtt.com/api/v13/classes/foundry.applications.api.ApplicationV2.html. O carregamento da rede foi separado do `_onRender`, deixando o ciclo de renderização terminar antes da imagem responder.
+- Chrome, janela padrão: seletor e botão Adicionar com 34 px de altura, top 224,390625 px e bottom 258,390625 px para ambos. Biblioteca, galeria e inspetor mantêm dimensões e temas da versão anterior.
+- Editor 520 × 640: área de imagem com 240 px de altura útil, `scrollHeight` também 240 px; canvas em contain, círculo completo, zoom e rodapé visíveis. O desenho permanece 512 × 512, com arrasto convertido pela menor dimensão visual.
+- Reenquadrar uma entrada existente abriu o arquivo original e habilitou Salvar alterações; Cancelar fechou o editor e preservou a biblioteca. X também fechou somente o editor.
+- Preparação com URL de arquivo inexistente gerou erro recuperável, Cancelar habilitado e Salvar desabilitado. Trocar para um link válido carregou a imagem e habilitou Salvar, sem recriar a janela. Tema claro aplicado ao editor aberto preservou a imagem carregada.
+- 28 testes automatizados passam, incluindo cancelamento/X durante imagem sem resposta, prazo de carregamento, recuperação de erro, troca de fonte, edição sem duplicar entrada, preservação de favorito/ordem, criação de nova aparência, falha de upload, bloqueio de fechamento durante upload, falha de fechamento seguida de nova tentativa e escala de arrasto.
+- Evidências: `../qa/prism-alinhado-0104.jpg` e `../qa/prism-editor-0104.jpg`. Verificação visual e testes usam ambiente Foundry simulado com tokens de exemplo; não houve acesso ao mundo Foundry real do usuário ou teste de socketlib em servidor real.
+- Sintaxe, testes, empacotamento e `git diff --check` aprovados. Pipeline e assets de borda preservados; salvar recorte continua separado de Aplicar no token.

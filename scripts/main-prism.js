@@ -15,6 +15,7 @@ const SETTING_UPLOAD_DIRECTORY = "uploadDirectory";
 const SETTING_THEME = "theme";
 const SETTING_REDUCED_MOTION = "reducedMotion";
 const wardrobeApplications = new Set();
+const openCroppers = new Map();
 
 function getWardrobeTheme() {
   return game.settings.get(MODULE_ID, SETTING_THEME) === "dark" ? "dark" : "light";
@@ -851,19 +852,37 @@ function buildImageRequestUrl(source) {
   return clean;
 }
 
-async function loadImage(source) {
+async function loadImage(source, {signal, timeoutMs = 0} = {}) {
   const candidate = buildImageRequestUrl(source);
   if (!candidate) throw new Error("TW_BAD_IMAGE");
 
   return await new Promise((resolve, reject) => {
     const image = new Image();
+    let timer;
+    const finish = (error) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      image.onload = image.onerror = null;
+      if (error) reject(error);
+      else resolve(image);
+    };
+    const abort = () => {
+      finish(new Error("TW_IMAGE_LOAD_ABORTED"));
+      image.src = "";
+    };
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener("abort", abort, {once: true});
+    if (timeoutMs > 0) timer = setTimeout(() => {
+      finish(new Error("TW_IMAGE_LOAD_TIMEOUT"));
+      image.src = "";
+    }, timeoutMs);
 
     if (isRemoteUrl(candidate)) {
       image.crossOrigin = "anonymous";
     }
 
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("TW_SOURCE_LOAD_FAILED"));
+    image.onload = () => finish();
+    image.onerror = () => finish(new Error("TW_SOURCE_LOAD_FAILED"));
 
     // Do NOT append our own query parameter to remote URLs. Discord CDN links
     // commonly use signed query strings, and changing them can invalidate the URL.
@@ -1292,7 +1311,10 @@ function bindCropperWindowClose(app) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation?.();
-      void app.close();
+      void app.close().catch(error => {
+        console.error(`${MODULE_TITLE} | Cropper close failed`, error);
+        notify("error", "Não foi possível fechar o editor. Tente novamente.");
+      });
     },
     {capture: true}
   );
@@ -1312,7 +1334,6 @@ async function cancelCropperAndReturn(app) {
     await app.close();
 
     if (parent?.rendered) {
-      parent.render({force: true});
       parent.bringToFront?.();
     } else {
       openWardrobe({actorId, tokenId});
@@ -1339,7 +1360,9 @@ class TokenCropperApp extends BaseApplication {
       resetCrop: TokenCropperApp.#resetCrop,
       fitImage: TokenCropperApp.#fitImage,
       saveCrop: TokenCropperApp.#saveCrop,
-      cancelCrop: TokenCropperApp.#cancelCrop
+      cancelCrop: TokenCropperApp.#cancelCrop,
+      retryImage: TokenCropperApp.#retryImage,
+      replaceSource: TokenCropperApp.#replaceSource
     }
   };
 
@@ -1364,12 +1387,18 @@ class TokenCropperApp extends BaseApplication {
     this.savePending = false;
     this.cancelPending = false;
     this.returnApp = options.returnApp ?? null;
+    this.imageState = "loading";
+    this.loadError = "";
+    this.loadController = null;
+    this.closed = false;
+    this.closePending = null;
     wardrobeApplications.add(this);
   }
 
   async _prepareContext() {
     return {
       source: this.source,
+      editing: Boolean(this.entryId),
       name: this.entryName,
       zoom: this.crop.zoom,
       zoomPercent: Math.round(this.crop.zoom * 100),
@@ -1387,7 +1416,7 @@ class TokenCropperApp extends BaseApplication {
     await super._onRender(context, options);
 
     const root = this.element;
-    if (!root) return;
+    if (!root || this.closed) return;
     applyWardrobePreferences(this);
 
     // Foundry v13 exposes the frame close button as `this.window.close`.
@@ -1403,28 +1432,15 @@ class TokenCropperApp extends BaseApplication {
     canvas.width = 512;
     canvas.height = 512;
 
-    try {
-      this.sourceImage = await loadImage(this.source);
-
-      if (this.frameConfig.framePath) {
-        try {
-          this.frameImage = await loadImage(this.frameConfig.framePath);
-        } catch (error) {
-          console.warn(`${MODULE_TITLE} | Could not preview fixed frame`, error);
-          this.frameImage = null;
-        }
-      }
-
-      this.#normalizePan(canvas.width);
-      this.#draw(canvas);
-    } catch (error) {
-      console.error(`${MODULE_TITLE} | Cropper image load failed`, error);
-      notify("error", processingErrorMessage(error));
-      await this.close();
-      return;
-    }
-
     zoom.value = String(this.crop.zoom);
+    root.querySelector('[data-role="crop-name"]')?.addEventListener("input", event => {
+      this.entryName = event.currentTarget.value;
+    });
+    root.querySelector('[data-role="replacement-source"]')?.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      root.querySelector('[data-action="replaceSource"]')?.click();
+    });
 
     zoom.addEventListener("input", event => {
       this.crop.zoom = Math.min(
@@ -1438,6 +1454,7 @@ class TokenCropperApp extends BaseApplication {
 
 
     canvas.addEventListener("pointerdown", event => {
+      if (this.imageState !== "ready" || this.savePending) return;
       this.dragging = true;
       canvas.setPointerCapture?.(event.pointerId);
       this.dragStart = {
@@ -1453,8 +1470,11 @@ class TokenCropperApp extends BaseApplication {
       if (!this.dragging || !this.dragStart) return;
 
       const rect = canvas.getBoundingClientRect();
-      const factorX = canvas.width / rect.width;
-      const factorY = canvas.height / rect.height;
+      // object-fit: contain keeps the square drawing inside a resized stage.
+      const visibleSize = Math.min(rect.width, rect.height);
+      if (visibleSize <= 0) return;
+      const factorX = canvas.width / visibleSize;
+      const factorY = canvas.height / visibleSize;
 
       this.crop.panX = this.dragStart.panX + ((event.clientX - this.dragStart.x) * factorX);
       this.crop.panY = this.dragStart.panY + ((event.clientY - this.dragStart.y) * factorY);
@@ -1476,6 +1496,7 @@ class TokenCropperApp extends BaseApplication {
 
     canvas.addEventListener("wheel", event => {
       event.preventDefault();
+      if (this.imageState !== "ready" || this.savePending) return;
 
       const delta = event.deltaY > 0 ? -0.08 : 0.08;
       this.crop.zoom = Math.min(
@@ -1490,6 +1511,7 @@ class TokenCropperApp extends BaseApplication {
     }, {passive: false});
 
     canvas.addEventListener("keydown", event => {
+      if (this.imageState !== "ready" || this.savePending) return;
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
       event.preventDefault();
       const step = event.shiftKey ? 20 : 5;
@@ -1498,11 +1520,124 @@ class TokenCropperApp extends BaseApplication {
       this.#normalizePan(canvas.width);
       this.#draw(canvas);
     });
+
+    if (this.sourceImage && this.frameImage) {
+      this.imageState = "ready";
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+      this.syncEditorControls();
+    } else {
+      // Do not hold ApplicationV2's render lifecycle open while a URL loads.
+      // Native X and Cancel remain usable even if a remote image never replies.
+      this.pendingImageLoad = this.#loadImages(canvas);
+    }
   }
 
   async close(options = {}) {
-    wardrobeApplications.delete(this);
-    return super.close(options);
+    if (this.savePending && !options.saved) return this;
+    if (this.closePending) return this.closePending;
+    this.closed = true;
+    this.loadController?.abort();
+    this.dragging = false;
+    this.dragStart = null;
+    this.closePending = (async () => {
+      let result;
+      try {
+        result = await super.close(options);
+      } catch (error) {
+        this.closed = false;
+        this.closePending = null;
+        if (this.imageState === "loading") {
+          this.imageState = "error";
+          this.loadError = "O carregamento foi interrompido. Tente novamente.";
+          this.syncEditorControls();
+        }
+        throw error;
+      }
+      wardrobeApplications.delete(this);
+      if (openCroppers.get(this.cropperKey) === this) openCroppers.delete(this.cropperKey);
+      if (this.returnApp?.rendered) this.returnApp.bringToFront?.();
+      return result;
+    })();
+    return this.closePending;
+  }
+
+  syncEditorControls() {
+    const root = this.element;
+    if (!root) return;
+    const ready = this.imageState === "ready";
+    const stage = root.querySelector('.twl-crop-stage');
+    stage?.setAttribute("aria-busy", String(this.imageState === "loading"));
+    const status = root.querySelector('[data-role="image-status"]');
+    if (status) {
+      status.hidden = ready;
+      status.textContent = this.imageState === "error" ? this.loadError : "Carregando imagem… Você pode cancelar ou fechar a janela.";
+    }
+    const retry = root.querySelector('[data-action="retryImage"]');
+    if (retry) retry.hidden = this.imageState !== "error";
+    root.querySelector('.twl-crop-hint')?.toggleAttribute("hidden", !ready);
+    for (const control of root.querySelectorAll('[data-action], [data-role="zoom"], [data-role="crop-name"], [data-role="replacement-source"]')) {
+      const needsImage = ["saveCrop", "fitImage", "resetCrop"].includes(control.dataset.action) || control.dataset.role === "zoom";
+      control.disabled = this.savePending || (needsImage && !ready);
+    }
+    if (this.window?.close) this.window.close.disabled = this.savePending;
+    const saveLabel = root.querySelector('[data-role="save-label"]');
+    if (saveLabel) saveLabel.textContent = this.savePending ? "Salvando…" : this.entryId ? "Salvar alterações" : "Salvar aparência";
+  }
+
+  async #loadImages(canvas) {
+    if (this.closed) return;
+    this.loadController?.abort();
+    const controller = this.loadController = new AbortController();
+    this.imageState = "loading";
+    this.loadError = "";
+    this.sourceImage = null;
+    this.syncEditorControls();
+    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    try {
+      const [sourceImage, frameImage] = await Promise.all([
+        loadImage(this.source, {signal: controller.signal, timeoutMs: 15000}),
+        this.frameImage ?? loadImage(this.frameConfig.framePath, {signal: controller.signal, timeoutMs: 15000})
+      ]);
+      if (controller.signal.aborted || this.closed || this.loadController !== controller) return;
+      this.sourceImage = sourceImage;
+      this.frameImage = frameImage;
+      this.imageState = "ready";
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+    } catch (error) {
+      if (controller.signal.aborted || this.closed || this.loadController !== controller) return;
+      controller.abort();
+      this.imageState = "error";
+      this.loadError = "Não foi possível carregar a imagem original ou a borda. Confira o link e o acesso ao arquivo; você pode tentar novamente ou trocar a imagem abaixo.";
+      console.warn(`${MODULE_TITLE} | Cropper image load failed`, error);
+    }
+    if (!this.closed && this.loadController === controller) this.syncEditorControls();
+  }
+
+  static async #retryImage() {
+    if (this.closed || this.savePending) return;
+    const canvas = this.element?.querySelector('[data-role="crop-canvas"]');
+    if (canvas) await (this.pendingImageLoad = this.#loadImages(canvas));
+  }
+
+  static async #replaceSource() {
+    if (this.closed || this.savePending) return;
+    const input = this.element?.querySelector('[data-role="replacement-source"]');
+    const source = sanitizeSource(input?.value);
+    if (!source || !isRemoteUrl(source) || !isSupportedSource(source)) {
+      notify("error", "Cole o link direto http/https de uma imagem compatível.");
+      return;
+    }
+    this.source = source;
+    this.crop = defaultCrop();
+    const note = this.element.querySelector('.twl-source-note span');
+    if (note) { note.textContent = source; note.title = source; }
+    const zoom = this.element.querySelector('[data-role="zoom"]');
+    if (zoom) zoom.value = "1";
+    const label = this.element.querySelector('[data-role="zoom-value"]');
+    if (label) label.textContent = "100%";
+    await TokenCropperApp.#retryImage.call(this);
   }
 
   #normalizePan(size) {
@@ -1635,10 +1770,10 @@ class TokenCropperApp extends BaseApplication {
   }
 
   static async #saveCrop(event, target) {
-    if (this.savePending) return;
+    if (this.savePending || this.closed || this.imageState !== "ready") return;
 
     this.savePending = true;
-    target.disabled = true;
+    this.syncEditorControls();
 
     try {
       if (!this.frameConfig.ready) throw new Error("TW_FRAME_NOT_READY");
@@ -1672,17 +1807,16 @@ class TokenCropperApp extends BaseApplication {
       }
 
       notify("info", "Aparência salva.");
-      await this.close();
+      await this.close({saved: true});
 
-      if (appInstance?.rendered) {
-        appInstance.render({force: true});
-      }
+      const parent = this.returnApp ?? appInstance;
+      if (parent?.rendered) await parent.render({force: true});
     } catch (error) {
       console.error(`${MODULE_TITLE} | Crop save failed`, error);
       notify("error", processingErrorMessage(error));
     } finally {
       this.savePending = false;
-      target.disabled = false;
+      if (!this.closed) this.syncEditorControls();
     }
   }
 
@@ -1699,7 +1833,7 @@ class TokenCropperApp extends BaseApplication {
   }
 }
 
-function openCropper({actor, token, source, entry = null}) {
+function openCropper({actor, token, source, entry = null, returnApp = null}) {
   const frameConfig = getWardrobeFrameConfig(actor, token);
 
 
@@ -1713,16 +1847,25 @@ function openCropper({actor, token, source, entry = null}) {
     return null;
   }
 
+  const key = `${actor.id}:${token.id}:${entry?.id || source}`;
+  const existing = openCroppers.get(key);
+  if (existing && !existing.closed) {
+    existing.bringToFront?.();
+    return existing;
+  }
   const cropper = new TokenCropperApp({
+    id: `${MODULE_ID}-cropper-${foundry.utils.randomID(16)}`,
     actor,
     token,
     source,
     entryId: entry?.id ?? "",
     name: entry?.name ?? displayNameFromSource(source),
     crop: entry?.crop ?? defaultCrop(),
-    returnApp: appInstance?.rendered ? appInstance : null
+    returnApp: returnApp ?? (appInstance?.rendered ? appInstance : null)
   });
 
+  cropper.cropperKey = key;
+  openCroppers.set(key, cropper);
   cropper.render({force: true});
   return cropper;
 }
@@ -2121,7 +2264,7 @@ class TokenWardrobeApp extends BaseApplication {
       return;
     }
 
-    openCropper({actor, token, source});
+    openCropper({actor, token, source, returnApp: this});
   }
 
   static async #pickFile() {
@@ -2133,7 +2276,7 @@ class TokenWardrobeApp extends BaseApplication {
       const source = await pickSingleImage();
       if (!source) return;
 
-      openCropper({actor, token, source});
+      openCropper({actor, token, source, returnApp: this});
     } catch (error) {
       console.error(`${MODULE_TITLE} | File Picker failed`, error);
       notify("error", "Não foi possível abrir o seletor de arquivos.");
@@ -2184,7 +2327,8 @@ class TokenWardrobeApp extends BaseApplication {
       actor,
       token,
       source: entry.source,
-      entry
+      entry,
+      returnApp: this
     });
   }
 

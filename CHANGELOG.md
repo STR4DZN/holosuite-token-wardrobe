@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.4 — alinhamento e ciclo do editor
+
+- Alinha seletor de personagem, avatar e botão de adicionar na mesma base, com controles de altura uniforme.
+- Libera o ciclo de renderização enquanto a imagem carrega: Cancelar e X continuam disponíveis. Fechar aborta o carregamento e ignora respostas tardias.
+- Mostra carregamento/erro, permite tentar novamente ou trocar o link original e bloqueia salvar até imagem e borda estarem prontas.
+- Cancelar retorna à janela de origem sem reconstruir a galeria ou perder busca/rolagem.
+- Reenquadrar preserva ID, favorito, ordem e nome da entrada existente. Renders preservam o nome em edição e o recorte; abrir a mesma entrada novamente foca seu editor.
+- Usa IDs únicos para editores de entradas diferentes e limpa o registro ao fechar.
+- Bloqueia cancelar/fechar durante o salvamento; falhas de upload mantêm o recorte para nova tentativa.
+- Ajusta a prévia à altura disponível, preservando a proporção da arte e corrigindo a escala do arrasto quando a área é retangular.
+
 ## 0.10.3 — estado em tempo real e biblioteca compacta
 
 - Atualiza “Em uso”, a prévia e o botão Aplicar após a confirmação da troca, incluindo quando a confirmação chega antes da sincronização local da textura.

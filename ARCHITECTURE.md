@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.10.3
+# Arquitetura — HoloSuite Token Wardrobe v0.10.4
 
 ## Objetivo
 
@@ -149,3 +149,12 @@ Cada `TokenWardrobeApp` mantém confirmações de textura por token/documento qu
 A aplicação atualiza apenas classes, badges, status e disponibilidade do botão, sem renderizar novamente o app. Um bloqueio de aplicação impede requisições simultâneas mesmo após selecionar outra prévia. O documento continua sendo alterado exclusivamente pelo fluxo validado de `switchImage`.
 
 A biblioteca usa um contêiner de rolagem próprio, cuja posição é restaurada em renders necessários de filtros/coleção. O inspetor permanece ao lado; tem rolagem de segurança para janelas baixas ou avisos extensos. Abaixo de 480 px de largura, os painéis se empilham e a área principal pode rolar.
+
+
+### Ciclo de vida do editor (0.10.4)
+
+O `_onRender` conecta os controles e inicia `pendingImageLoad` sem aguardar a rede dentro do ciclo de renderização do ApplicationV2. Imagem e borda carregam em paralelo, com `AbortController`, prazo de 15 s e estados loading/ready/error. `close` aborta a carga e invalida resultados de um editor fechado; cancelamento não salva nem renderiza novamente a janela de origem. Falha no fechamento mantém o registro do editor e permite repetir a ação.
+
+`openCroppers` evita duplicar editores da mesma entrada/token e IDs únicos permitem editar entradas distintas. O app de origem é passado explicitamente pelos fluxos da biblioteca, evitando voltar a outra janela global. Durante o upload, os controles e fechamento ficam bloqueados; o fluxo de sucesso fecha com `saved: true`, enquanto a falha preserva o recorte.
+
+O canvas usa `object-fit: contain` em uma área que acompanha a altura disponível. O arrasto usa a menor dimensão visível para converter deslocamentos da tela em unidades de 512 px. Recorte circular, borda, formato final, ownership e relay mantêm o pipeline existente.
