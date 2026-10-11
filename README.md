@@ -1,6 +1,24 @@
-# HoloSuite Token Wardrobe v0.9.4
+# HoloSuite Token Wardrobe v0.10.0 — Prism
 
 Módulo standalone de gerenciamento de artes de token para Foundry VTT v13.351.
+
+## Interface e temas
+
+Prism possui temas **Claro** e **Escuro**, com layout adaptado ao tamanho da janela.
+
+Cada player e GM escolhe em **Configurar Configurações → HoloSuite Token Wardrobe → Tema do Wardrobe**, ou no seletor **Tema** do cabeçalho do app. A configuração é individual por usuário neste mundo (`scope: user`), com Claro como padrão. Ela também afeta o editor de recorte e muda sem recarregar nem perder o enquadramento em andamento.
+
+Há uma preferência individual para **Reduzir movimentos do Wardrobe**; a configuração de movimento reduzido do sistema também é respeitada.
+
+Selecione uma arte para ver a prévia e clique em **Aplicar no token** para confirmar. Use as abas dos personagens, filtro de favoritas e busca para organizar a biblioteca. A busca permanece ao favoritar ou renomear uma entrada. Sem token, a coleção continua visível, mas a aplicação e preparação de imagem exigem um token na cena.
+
+O recorte aceita arraste, zoom e setas do teclado (5 px; Shift + setas: 20 px). Remover uma entrada pede confirmação e mantém a textura já aplicada no token.
+
+## Desenvolvimento e release
+
+`npm ci`, `npm run check` e `npm test` validam sintaxe, templates e os fluxos Prism com um ambiente Foundry simulado. Esses testes não substituem a integração em uma sessão real do Foundry.
+
+`python3 tools/package_module.py` gera o ZIP instalável em `dist/`, sem dependências npm ou arquivos de teste. O workflow de release valida, empacota e publica o manifest e ZIP quando a versão de `module.json` é atualizada na branch main.
 
 ## Função
 

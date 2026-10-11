@@ -1,8 +1,8 @@
 {
   "id": "holosuite-token-wardrobe",
   "title": "HoloSuite Token Wardrobe",
-  "description": "Standalone HoloSuite token artwork manager with manual crop, fixed border, isolated storage, owner autonomy, and authenticated GM relay.",
-  "version": "0.9.4",
+  "description": "Prism token wardrobe with individual light/dark themes, manual crop, fixed border, isolated storage and authenticated GM relay.",
+  "version": "0.10.0",
   "authors": [
     {
       "name": "STR4DZN"
@@ -10,17 +10,17 @@
   ],
   "url": "https://github.com/STR4DZN/holosuite-token-wardrobe",
   "manifest": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/latest/download/module.json",
-  "download": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/download/v0.9.4/holosuite-token-wardrobe-v0.9.4.zip",
+  "download": "https://github.com/STR4DZN/holosuite-token-wardrobe/releases/download/v0.10.0/holosuite-token-wardrobe-v0.10.0.zip",
   "compatibility": {
     "minimum": "13",
     "verified": "13.351",
     "maximum": "13"
   },
   "esmodules": [
-    "scripts/main-v094.js"
+    "scripts/main-prism.js"
   ],
   "styles": [
-    "styles/token-wardrobe-v094.css"
+    "styles/token-wardrobe-prism.css"
   ],
   "languages": [
     {

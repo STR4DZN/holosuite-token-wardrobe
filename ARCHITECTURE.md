@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.9.4
+# Arquitetura — HoloSuite Token Wardrobe v0.10.0
 
 ## Objetivo
 
@@ -131,3 +131,12 @@ O módulo não chama `token.control()`.
 ## Independência
 
 O módulo não registra hooks de aplicações de editores externos, não substitui métodos de terceiros e não lê settings de terceiros.
+
+
+## Interface Prism e preferências individuais
+
+O runtime usa `scripts/main-prism.js`, `styles/token-wardrobe-prism.css` e `templates/cropper-prism.hbs`. A biblioteca mantém a seleção para prévia; somente o botão Aplicar chama a troca de textura existente. Busca, filtro de favoritos e ordenação permanecem no estado da janela durante os renders.
+
+`theme` (`light`/`dark`) e `reducedMotion` são configurações de escopo `user` do Foundry v13. A mudança aplica atributos ao elemento de cada janela aberta, inclusive ao editor, sem recriar o canvas ou alterar o recorte. As cores e os movimentos ficam restritos às classes do Wardrobe. O sistema também respeita `prefers-reduced-motion`.
+
+O esquema das flags continua na versão 5. O pipeline de imagem, a borda fixa, as permissões e o relay autenticado não mudam nesta versão.

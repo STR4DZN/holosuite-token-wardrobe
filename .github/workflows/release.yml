@@ -1,0 +1,41 @@
+name: Validate and release Wardrobe
+
+on:
+  push:
+    branches: [main]
+    paths: [module.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wardrobe-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate source and behavior
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm test
+      - name: Package Foundry module
+        run: python3 tools/package_module.py
+      - name: Publish the manifest and versioned ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "require('./module.json').version")
+          tag="v${version}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Release $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --title "HoloSuite Token Wardrobe $tag — Prism" --notes-file CHANGELOG.md --latest "dist/module.json" "dist/holosuite-token-wardrobe-v${version}.zip"

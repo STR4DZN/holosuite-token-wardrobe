@@ -1,160 +1,39 @@
-
 <div class="twl-shell">
-  <header class="twl-header twl-compact-header">
-    <div class="twl-heading">
-      <span class="twl-kicker">HOLOSUITE // APARÊNCIAS</span>
-      <h1>{{#if actor}}{{actor.name}}{{else}}Aparências{{/if}}</h1>
-    </div>
-
-    <span class="twl-status-chip {{wardrobeClass}}">
-      <i class="fa-solid fa-circle"></i>
-      {{wardrobeStatus}}
-    </span>
+  <header class="twl-header">
+    <div class="twl-brand"><span class="twl-brand-icon"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></span><div><strong>HoloSuite</strong><span class="twl-kicker">WARDROBE / PRISM</span></div></div>
+    <label class="twl-theme-field"><span>Tema</span><select data-role="theme-select" aria-label="Tema do Wardrobe"><option value="light" {{#if themeLight}}selected{{/if}}>Claro</option><option value="dark" {{#if themeDark}}selected{{/if}}>Escuro</option></select></label>
   </header>
-
   <div class="twl-scroll">
     {{#unless hasActor}}
-      <section class="twl-empty">
-        <i class="fa-solid fa-user-slash"></i>
-        <h2>Nenhum personagem disponível</h2>
-        <p>Defina seu Character ou use um Actor do qual você seja Owner.</p>
-      </section>
+      <section class="twl-empty"><i class="fa-solid fa-user-slash" aria-hidden="true"></i><h2>Nenhum personagem disponível</h2><p>Defina seu Character ou use um Actor do qual você seja Owner.</p></section>
     {{else}}
-
-      {{#if multipleActors}}
-        <label class="twl-field compact">
-          <span>Personagem</span>
-          <select data-role="actor-select">
-            {{#each actors}}
-              <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
-            {{/each}}
-          </select>
-        </label>
-      {{/if}}
-
-      {{#if multipleTokens}}
-        <label class="twl-field compact">
-          <span>Token</span>
-          <select data-role="token-select">
-            {{#each tokens}}
-              <option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>
-            {{/each}}
-          </select>
-        </label>
-      {{/if}}
-
-      <div class="twl-token-quickbar">
-        <button type="button" data-role="use-selected-token">
-          <i class="fa-solid fa-crosshairs"></i>
-          Token selecionado
-        </button>
-        <button type="button" data-role="use-my-token">
-          <i class="fa-solid fa-user"></i>
-          Meu token na cena
-        </button>
-      </div>
-
-      {{#unless hasToken}}
-        <section class="twl-empty compact">
-          <i class="fa-solid fa-location-crosshairs"></i>
-          <h2>Token não encontrado</h2>
-          <p>Coloque o personagem na cena atual para trocar sua aparência.</p>
-        </section>
-      {{else}}
-{{#if fixedRingSubject}}
-          <div class="twl-inline-warning">
-            Dynamic Token Ring possui Subject Texture fixa; ela pode esconder a imagem base.
-          </div>
-        {{/if}}
-
-        {{#if canSubmitUrl}}
-          <section class="twl-add-panel">
-            <div class="twl-url-row">
-              <input
-                type="url"
-                data-role="url-input"
-                placeholder="Cole o link direto da imagem..."
-                autocomplete="off">
-              <button type="button" data-action="prepareUrl" {{#unless wardrobeReady}}disabled{{/unless}}>
-                <i class="fa-solid fa-crop-simple"></i>
-                Preparar
-              </button>
-            </div>
-
-            {{#if canBrowseFiles}}
-              <button class="twl-file-button" type="button" data-action="pickFile" {{#unless wardrobeReady}}disabled{{/unless}}>
-                <i class="fa-solid fa-folder-open"></i>
-                Escolher imagem do Foundry
-              </button>
-            {{/if}}
-
-            {{#unless wardrobeReady}}
-              <small>O Wardrobe precisa de FILES_UPLOAD local ou de um GM ativo para o relay técnico.</small>
-            {{else}}
-              {{#if relayUpload}}
-                <small>Players usam URL sem acesso aos arquivos. O upload é feito automaticamente por relay técnico.</small>
-              {{/if}}
-            {{/unless}}
-          </section>
-        {{/if}}
-
-        <label class="twl-search twl-search-compact">
-          <i class="fa-solid fa-magnifying-glass"></i>
-          <input data-role="search" type="search" placeholder="Buscar...">
-        </label>
-
-        {{#if gallery.length}}
-          <section class="twl-grid twl-grid-compact">
+      <section class="twl-welcome"><div><span class="twl-kicker">SEU ESPAÇO DE IDENTIDADE</span><h1>Vista a próxima missão</h1><p>Todas as suas versões, em um só lugar.</p></div><span class="twl-status-chip {{wardrobeClass}}"><i class="fa-solid fa-circle" aria-hidden="true"></i>{{wardrobeStatus}}</span></section>
+      {{#if multipleActors}}<nav class="twl-actor-tabs" aria-label="Personagens">{{#each actors}}<button type="button" data-action="selectActor" data-id="{{id}}" class="{{#if selected}}is-selected{{/if}}" aria-pressed="{{#if selected}}true{{else}}false{{/if}}"><i class="fa-solid fa-user-astronaut" aria-hidden="true"></i><span>{{name}}</span></button>{{/each}}</nav>{{/if}}
+      <div class="twl-dashboard">
+        <section class="twl-library" aria-label="Biblioteca de aparências">
+          <header class="twl-character"><span class="twl-avatar" aria-hidden="true">{{actorInitial}}</span><div><h2>{{actor.name}}</h2><span>{{galleryCount}} aparências na biblioteca</span></div><span class="twl-library-badge">Biblioteca pessoal</span></header>
+          <nav class="twl-collection-tabs" aria-label="Coleções"><button type="button" data-action="filterGallery" data-filter="all" class="{{#if showAll}}is-selected{{/if}}" aria-pressed="{{#if showAll}}true{{else}}false{{/if}}"><i class="fa-solid fa-grip" aria-hidden="true"></i>Todas <span>{{galleryCount}}</span></button><button type="button" data-action="filterGallery" data-filter="favorites" class="{{#if showFavorites}}is-selected{{/if}}" aria-pressed="{{#if showFavorites}}true{{else}}false{{/if}}"><i class="fa-solid fa-star" aria-hidden="true"></i>Favoritas <span>{{favoriteCount}}</span></button></nav>
+          <div class="twl-tools"><label class="twl-search"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input data-role="search" type="search" value="{{searchQuery}}" placeholder="Buscar aparência…" aria-label="Buscar aparências"></label><select data-role="gallery-sort" aria-label="Ordenar aparências"><option value="favorites" {{#if sortFavorites}}selected{{/if}}>Favoritas primeiro</option><option value="name" {{#if sortName}}selected{{/if}}>Nome A–Z</option></select></div>
+          <section class="twl-grid" aria-label="Aparências disponíveis">
             {{#each gallery}}
-              <article
-                class="twl-card {{#if active}}is-active{{/if}} {{#if favorite}}is-favorite{{/if}}"
-                data-search="{{searchText}}">
-
-                <button
-                  class="twl-image-button twl-image-button-compact"
-                  type="button"
-                  data-action="switchImage"
-                  data-src="{{src}}"
-                  title="Usar {{name}}">
-                  <img src="{{src}}" alt="{{name}}" loading="lazy" decoding="async">
-                  {{#if active}}<span class="twl-active-badge">ATUAL</span>{{/if}}
-                  {{#if favorite}}<span class="twl-star"><i class="fa-solid fa-star"></i></span>{{/if}}
-                </button>
-
-                <div class="twl-card-footer">
-                  <strong title="{{name}}">{{name}}</strong>
-
-                  {{#if ../canEditCrop}}
-                    <div class="twl-card-actions twl-card-actions-compact">
-                      <button type="button" data-action="editCrop" data-id="{{id}}" title="Reenquadrar">
-                        <i class="fa-solid fa-crop-simple"></i>
-                      </button>
-                      {{#if ../canManage}}
-                        <button type="button" data-action="toggleFavorite" data-id="{{id}}" title="Favoritar">
-                          <i class="fa-solid fa-star"></i>
-                        </button>
-                        <button type="button" data-action="renameImage" data-id="{{id}}" title="Renomear">
-                          <i class="fa-solid fa-pen"></i>
-                        </button>
-                        <button type="button" data-action="removeImage" data-id="{{id}}" title="Remover">
-                          <i class="fa-solid fa-trash"></i>
-                        </button>
-                      {{/if}}
-                    </div>
-                  {{/if}}
-                </div>
+              <article class="twl-card {{#if selected}}is-selected{{/if}} {{#if active}}is-active{{/if}}" data-search="{{searchText}}" style="--twl-motion-index:{{motionIndex}}">
+                <button class="twl-image-button" type="button" data-action="selectImage" data-id="{{id}}" aria-label="Pré-visualizar {{name}}" aria-pressed="{{#if selected}}true{{else}}false{{/if}}"><img src="{{src}}" alt="" loading="lazy" decoding="async">{{#if active}}<span class="twl-active-badge"><i class="fa-solid fa-check" aria-hidden="true"></i>EM USO</span>{{/if}}</button>
+                {{#if ../canManage}}<button class="twl-favorite-button {{#if favorite}}is-favorite{{/if}}" type="button" data-action="toggleFavorite" data-id="{{id}}" aria-label="{{#if favorite}}Desfavoritar{{else}}Favoritar{{/if}} {{name}}" aria-pressed="{{#if favorite}}true{{else}}false{{/if}}"><i class="fa-solid fa-star" aria-hidden="true"></i></button>{{/if}}
+                <div class="twl-card-footer"><strong title="{{name}}">{{name}}</strong><small>{{#if favorite}}Favorita{{else}}Aparência salva{{/if}}</small></div>
               </article>
             {{/each}}
           </section>
-        {{else}}
-          <section class="twl-empty compact">
-            <i class="fa-regular fa-images"></i>
-            <h2>Nenhuma aparência</h2>
-            <p>Cole uma URL ou escolha uma imagem.</p>
-          </section>
-        {{/if}}
-
-      {{/unless}}
+          <section class="twl-empty compact" data-role="search-empty" hidden><i class="fa-regular fa-images" aria-hidden="true"></i><h3>Nenhuma aparência encontrada</h3><p>Experimente outra busca, volte a Todas ou adicione uma arte.</p><button type="button" data-action="clearSearch">Limpar filtros</button></section>
+          <footer class="twl-resultbar"><span data-role="result-count" aria-live="polite"></span><span>Selecione para pré-visualizar</span></footer>
+        </section>
+        <aside class="twl-inspector" aria-label="Destino e prévia">
+          <section class="twl-target"><span class="twl-kicker">APLICAR EM</span><label class="twl-field"><span>Token da cena</span>{{#if multipleTokens}}<select data-role="token-select" aria-label="Token de destino">{{#each tokens}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{name}}</option>{{/each}}</select>{{else}}<strong>{{#if hasToken}}{{tokenName}}{{else}}Nenhum token na cena{{/if}}</strong>{{/if}}</label><div class="twl-token-quickbar"><button type="button" data-role="use-selected-token"><i class="fa-solid fa-crosshairs" aria-hidden="true"></i>Selecionado</button><button type="button" data-role="use-my-token"><i class="fa-solid fa-user" aria-hidden="true"></i>Meu token</button></div>{{#unless hasToken}}<small>Coloque o personagem na cena para aplicar ou preparar uma aparência.</small>{{/unless}}</section>
+          {{#if fixedRingSubject}}<div class="twl-inline-warning">A textura fixa do Dynamic Token Ring pode esconder a imagem base.</div>{{/if}}
+          {{#if hasSelection}}<section class="twl-preview"><header><span class="twl-kicker">APARÊNCIA SELECIONADA</span></header><div class="twl-preview-stage"><img src="{{selected.src}}" alt="Prévia de {{selected.name}}" decoding="async"><span>512 × 512 / BORDA FIXA</span></div><div class="twl-preview-body"><small>{{#if selected.active}}Em uso neste token{{else}}Prévia · ainda não aplicada{{/if}}</small><h2>{{selected.name}}</h2><button type="button" class="twl-primary" data-action="switchImage" data-src="{{selected.src}}" {{#unless canApplySelection}}disabled{{/unless}}><i class="fa-solid fa-check" aria-hidden="true"></i>{{#if selected.active}}Aparência em uso{{else}}Aplicar no token{{/if}}</button>{{#if canEditCrop}}<button type="button" data-action="editCrop" data-id="{{selected.id}}" {{#unless wardrobeReady}}disabled{{/unless}}><i class="fa-solid fa-crop-simple" aria-hidden="true"></i>Reenquadrar imagem</button>{{/if}}{{#if canManage}}<div class="twl-preview-actions"><button type="button" data-action="renameImage" data-id="{{selected.id}}"><i class="fa-solid fa-pen" aria-hidden="true"></i>Renomear</button><button type="button" class="twl-danger" data-action="removeImage" data-id="{{selected.id}}"><i class="fa-solid fa-trash" aria-hidden="true"></i>Remover</button></div>{{/if}}</div></section>{{/if}}
+          {{#if canSubmitUrl}}<details class="twl-add-panel"><summary><i class="fa-solid fa-plus" aria-hidden="true"></i>Adicionar uma arte</summary><div class="twl-add-content"><label class="twl-field"><span>Link direto da imagem</span><input type="url" data-role="url-input" placeholder="https://…/personagem.webp" autocomplete="off"></label><button type="button" class="twl-primary" data-action="prepareUrl" {{#unless wardrobeReady}}disabled{{/unless}}><i class="fa-solid fa-crop-simple" aria-hidden="true"></i>Abrir no editor</button>{{#if canBrowseFiles}}<button type="button" data-action="pickFile" {{#unless wardrobeReady}}disabled{{/unless}}><i class="fa-solid fa-folder-open" aria-hidden="true"></i>Imagem do Foundry</button>{{/if}}{{#unless wardrobeReady}}<small>{{#if hasToken}}É necessário upload local ou um GM ativo para salvar.{{else}}Escolha um token na cena para preparar a imagem.{{/if}}</small>{{/unless}}</div></details>{{/if}}
+          <div class="twl-tip"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><p>Use favoritos para deixar suas aparências mais usadas sempre à mão.</p></div>
+        </aside>
+      </div>
     {{/unless}}
   </div>
 </div>

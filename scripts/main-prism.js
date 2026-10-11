@@ -12,6 +12,30 @@ const SETTING_PLAYER_MANAGE = "playerCanManage";
 const SETTING_AUTO_CLOSE = "autoCloseAfterSwitch";
 const SETTING_MAX_IMAGES = "maxImages";
 const SETTING_UPLOAD_DIRECTORY = "uploadDirectory";
+const SETTING_THEME = "theme";
+const SETTING_REDUCED_MOTION = "reducedMotion";
+const wardrobeApplications = new Set();
+
+function getWardrobeTheme() {
+  return game.settings.get(MODULE_ID, SETTING_THEME) === "dark" ? "dark" : "light";
+}
+
+function applyWardrobePreferences(app) {
+  const root = app.element;
+  if (!root) return;
+  root.dataset.twlTheme = getWardrobeTheme();
+  root.dataset.twlReducedMotion = String(game.settings.get(MODULE_ID, SETTING_REDUCED_MOTION) === true);
+  const selector = root.querySelector('[data-role="theme-select"]');
+  if (selector) selector.value = getWardrobeTheme();
+}
+
+function refreshWardrobePreferences() {
+  for (const app of wardrobeApplications) applyWardrobePreferences(app);
+}
+
+function normalizedSearch(value) {
+  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "avif"]);
 const switchLocks = new Map();
@@ -1320,7 +1344,7 @@ class TokenCropperApp extends BaseApplication {
   };
 
   static PARTS = {
-    main: {template: `modules/${MODULE_ID}/templates/cropper-v094.hbs`}
+    main: {template: `modules/${MODULE_ID}/templates/cropper-prism.hbs`}
   };
 
   constructor(options = {}) {
@@ -1340,6 +1364,7 @@ class TokenCropperApp extends BaseApplication {
     this.savePending = false;
     this.cancelPending = false;
     this.returnApp = options.returnApp ?? null;
+    wardrobeApplications.add(this);
   }
 
   async _prepareContext() {
@@ -1363,6 +1388,7 @@ class TokenCropperApp extends BaseApplication {
 
     const root = this.element;
     if (!root) return;
+    applyWardrobePreferences(this);
 
     // Foundry v13 exposes the frame close button as `this.window.close`.
     // Bind it explicitly so X always closes this cropper only.
@@ -1462,6 +1488,21 @@ class TokenCropperApp extends BaseApplication {
       this.#normalizePan(canvas.width);
       this.#draw(canvas);
     }, {passive: false});
+
+    canvas.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 20 : 5;
+      this.crop.panX += event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
+      this.crop.panY += event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
+      this.#normalizePan(canvas.width);
+      this.#draw(canvas);
+    });
+  }
+
+  async close(options = {}) {
+    wardrobeApplications.delete(this);
+    return super.close(options);
   }
 
   #normalizePan(size) {
@@ -1696,7 +1737,7 @@ class TokenWardrobeApp extends BaseApplication {
       icon: "fa-solid fa-masks-theater",
       resizable: true
     },
-    position: {width: 560, height: 620},
+    position: {width: 980, height: 740},
     actions: {
       prepareUrl: TokenWardrobeApp.#prepareUrl,
       pickFile: TokenWardrobeApp.#pickFile,
@@ -1704,7 +1745,11 @@ class TokenWardrobeApp extends BaseApplication {
       editCrop: TokenWardrobeApp.#editCrop,
       renameImage: TokenWardrobeApp.#renameImage,
       toggleFavorite: TokenWardrobeApp.#toggleFavorite,
-      removeImage: TokenWardrobeApp.#removeImage
+      removeImage: TokenWardrobeApp.#removeImage,
+      selectImage: TokenWardrobeApp.#selectImage,
+      selectActor: TokenWardrobeApp.#selectActor,
+      filterGallery: TokenWardrobeApp.#filterGallery,
+      clearSearch: TokenWardrobeApp.#clearSearch
     }
   };
 
@@ -1716,6 +1761,12 @@ class TokenWardrobeApp extends BaseApplication {
     super(options);
     this.actorId = options.actorId ?? resolveDefaultActor()?.id ?? "";
     this.tokenId = options.tokenId ?? "";
+    this.selectedId = "";
+    this.query = "";
+    this.galleryFilter = "all";
+    this.galleryOrder = "favorites";
+    this.scrollTop = 0;
+    wardrobeApplications.add(this);
   }
 
   get actor() {
@@ -1750,6 +1801,15 @@ class TokenWardrobeApp extends BaseApplication {
     if (token) this.tokenId = token.id;
 
     const gallery = actor ? getGallery(actor) : [];
+    const activeSrc = token?.document.texture?.src ?? "";
+    const selected = gallery.find(entry => entry.id === this.selectedId)
+      ?? gallery.find(entry => entry.src === activeSrc)
+      ?? gallery[0] ?? null;
+    this.selectedId = selected?.id ?? "";
+    const sortedGallery = [...gallery].sort(this.galleryOrder === "name"
+      ? (a, b) => a.name.localeCompare(b.name, "pt-BR")
+      : (a, b) => Number(b.favorite) - Number(a.favorite) || a.order - b.order);
+    const filteredGallery = sortedGallery.filter(entry => this.galleryFilter !== "favorites" || entry.favorite);
     const frame = actor && token ? getWardrobeFrameConfig() : {
       canUpload:false,
       frameEnabled:true,
@@ -1772,6 +1832,20 @@ class TokenWardrobeApp extends BaseApplication {
 
     return {
       actor,
+      actorInitial: String(actor?.name ?? "?").slice(0, 1).toUpperCase(),
+      selected: selected ? {...selected, active: selected.src === activeSrc} : null,
+      hasSelection: Boolean(selected),
+      canApplySelection: Boolean(token && selected && selected.src !== activeSrc),
+      galleryCount: gallery.length,
+      favoriteCount: gallery.filter(entry => entry.favorite).length,
+      showAll: this.galleryFilter === "all",
+      showFavorites: this.galleryFilter === "favorites",
+      sortFavorites: this.galleryOrder === "favorites",
+      sortName: this.galleryOrder === "name",
+      searchQuery: this.query,
+      themeLight: getWardrobeTheme() === "light",
+      themeDark: getWardrobeTheme() === "dark",
+      tokenName: token?.name || actor?.name || "",
       actors: actors.map(item => ({
         id: item.id,
         name: item.name,
@@ -1782,13 +1856,12 @@ class TokenWardrobeApp extends BaseApplication {
         name: item.name || actor?.name || "Token",
         selected: item.id === this.tokenId
       })),
-      gallery: [
-        ...gallery.filter(entry => entry.favorite),
-        ...gallery.filter(entry => !entry.favorite)
-      ].map(entry => ({
+      gallery: filteredGallery.map((entry, index) => ({
         ...entry,
         active: token?.document.texture?.src === entry.src,
-        searchText: `${entry.name} ${entry.source}`.toLowerCase()
+        selected: entry.id === this.selectedId,
+        motionIndex: Math.min(index, 10),
+        searchText: normalizedSearch(`${entry.name} ${entry.source}`)
       })),
       hasActor: Boolean(actor),
       hasToken: Boolean(token),
@@ -1814,10 +1887,31 @@ class TokenWardrobeApp extends BaseApplication {
 
     const root = this.element;
     if (!root) return;
+    applyWardrobePreferences(this);
+    const scroll = root.querySelector('.twl-scroll');
+    if (scroll) {
+      scroll.scrollTop = this.scrollTop;
+      scroll.addEventListener("scroll", () => { this.scrollTop = scroll.scrollTop; }, {passive: true});
+    }
+    root.querySelector('[data-role="theme-select"]')?.addEventListener("change", async event => {
+      try {
+        await game.settings.set(MODULE_ID, SETTING_THEME, event.currentTarget.value === "dark" ? "dark" : "light");
+      } catch (error) {
+        notify("error", "Não foi possível salvar sua preferência de tema.");
+        applyWardrobePreferences(this);
+      }
+    });
+    root.querySelector('[data-role="gallery-sort"]')?.addEventListener("change", event => {
+      this.galleryOrder = event.currentTarget.value === "name" ? "name" : "favorites";
+      this.render({force: true});
+    });
 
     root.querySelector('[data-role="actor-select"]')?.addEventListener("change", event => {
       this.actorId = String(event.currentTarget.value || "");
       this.tokenId = "";
+      this.selectedId = "";
+      this.query = "";
+      this.scrollTop = 0;
       this.render({force: true});
     });
 
@@ -1827,13 +1921,10 @@ class TokenWardrobeApp extends BaseApplication {
     });
 
     root.querySelector('[data-role="search"]')?.addEventListener("input", event => {
-      const query = String(event.currentTarget.value || "").trim().toLowerCase();
-
-      for (const card of root.querySelectorAll(".twl-card[data-search]")) {
-        const haystack = String(card.dataset.search || "");
-        card.hidden = Boolean(query) && !haystack.includes(query);
-      }
+      this.query = String(event.currentTarget.value || "");
+      this.#applySearch();
     });
+    this.#applySearch();
 
     root.querySelector('[data-role="url-input"]')?.addEventListener("keydown", event => {
       if (event.key !== "Enter") return;
@@ -1896,7 +1987,51 @@ class TokenWardrobeApp extends BaseApplication {
 
   async close(options = {}) {
     if (appInstance === this) appInstance = null;
+    wardrobeApplications.delete(this);
     return super.close(options);
+  }
+
+  #applySearch() {
+    const query = normalizedSearch(this.query.trim());
+    const cards = this.element?.querySelectorAll('.twl-card[data-search]') ?? [];
+    let visible = 0;
+    for (const card of cards) {
+      card.hidden = Boolean(query) && !String(card.dataset.search || "").includes(query);
+      if (!card.hidden) visible++;
+    }
+    const empty = this.element?.querySelector('[data-role="search-empty"]');
+    if (empty) empty.hidden = visible > 0;
+    const count = this.element?.querySelector('[data-role="result-count"]');
+    if (count) count.textContent = `${visible} aparência${visible === 1 ? "" : "s"}`;
+  }
+
+  static async #selectImage(event, target) {
+    const id = String(target.dataset.id || "");
+    if (!getGallery(this.actor).some(entry => entry.id === id)) return;
+    this.selectedId = id;
+    this.render({force: true});
+  }
+
+  static async #selectActor(event, target) {
+    const id = String(target.dataset.id || "");
+    if (!getEligibleActors().some(actor => actor.id === id)) return;
+    this.actorId = id;
+    this.tokenId = "";
+    this.selectedId = "";
+    this.query = "";
+    this.scrollTop = 0;
+    this.render({force: true});
+  }
+
+  static async #filterGallery(event, target) {
+    this.galleryFilter = target.dataset.filter === "favorites" ? "favorites" : "all";
+    this.render({force: true});
+  }
+
+  static async #clearSearch() {
+    this.query = "";
+    this.galleryFilter = "all";
+    this.render({force: true});
   }
 
   static async #prepareUrl() {
@@ -2031,6 +2166,14 @@ class TokenWardrobeApp extends BaseApplication {
     if (!actor || !canManageActor(actor)) return;
 
     const id = String(target.dataset.id || "");
+    const entry = getGallery(actor).find(item => item.id === id);
+    if (!entry) return;
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      window: {title: "Remover aparência"},
+      content: `<p>Remover “${foundry.utils.escapeHTML(entry.name)}” da biblioteca? A textura já aplicada no token será mantida.</p>`,
+      rejectClose: false
+    });
+    if (!confirmed) return;
     await saveGallery(actor, getGallery(actor).filter(entry => entry.id !== id));
     this.render({force: true});
   }
@@ -2122,6 +2265,25 @@ function exposeApi() {
 }
 
 Hooks.once("init", () => {
+  game.settings.register(MODULE_ID, SETTING_THEME, {
+    name: "Tema do Wardrobe",
+    hint: "Escolha Prism claro ou escuro. Sua preferência é individual, salva neste mundo e aplicada também ao editor sem recarregar.",
+    scope: "user",
+    config: true,
+    type: String,
+    choices: {light: "Prism · Claro", dark: "Prism · Escuro"},
+    default: "light",
+    onChange: refreshWardrobePreferences
+  });
+  game.settings.register(MODULE_ID, SETTING_REDUCED_MOTION, {
+    name: "Reduzir movimentos do Wardrobe",
+    hint: "Desliga as animações da interface. A preferência de movimento reduzido do sistema também é respeitada.",
+    scope: "user",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: refreshWardrobePreferences
+  });
   game.settings.register(MODULE_ID, SETTING_PLAYER_MANAGE, {
     name: "Legacy: player gallery management",
     hint: "Legacy setting retained for migration compatibility. Actor Owners always manage their own wardrobe.",
@@ -2134,7 +2296,7 @@ Hooks.once("init", () => {
 
   game.settings.register(MODULE_ID, SETTING_AUTO_CLOSE, {
     name: "Fechar após trocar aparência",
-    hint: "Fecha o app automaticamente após selecionar uma arte.",
+    hint: "Fecha o app automaticamente após aplicar uma aparência no token.",
     scope: "client",
     config: true,
     type: Boolean,
