@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.10.0 — Prism
+# HoloSuite Token Wardrobe v0.10.1 — Prism
 
 Módulo standalone de gerenciamento de artes de token para Foundry VTT v13.351.
 

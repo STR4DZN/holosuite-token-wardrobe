@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1 — identidade visual do tema escuro
+
+- Substitui a base roxa saturada por superfícies grafite, com lavanda apenas nos destaques.
+- Recupera a iluminação suave de fundo, cards e prévia circular da referência Prism.
+- Usa a família tipográfica da referência, independente da fonte global do Foundry.
+- Mantém as preferências individuais e os fluxos da versão 0.10.0.
+
+
 ## 0.10.0 — Prism
 
 - Interface Prism com biblioteca, abas de personagem, filtro de favoritas, busca sem distinção de acentos e prévia dedicada.
