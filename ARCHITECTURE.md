@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.10.1
+# Arquitetura — HoloSuite Token Wardrobe v0.10.2
 
 ## Objetivo
 

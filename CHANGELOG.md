@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.2 — imagens legíveis e controles nativos
+
+- Corrige as miniaturas achatadas por altura fixa de botões do Foundry: área quadrada com tamanho definido pelo card, imagens em `contain`.
+- Amplia os cards: grade ajustada ao espaço disponível, duas colunas na janela padrão e nomes maiores.
+- Restringe os estilos de botões, inputs e ícones ao conteúdo Prism, preservando fonte, dimensões e ações dos controles nativos de fechar/opções.
+- Aplica o isolamento também ao editor; mantém os temas, as preferências individuais e o pipeline de imagem.
+
+
 ## 0.10.1 — identidade visual do tema escuro
 
 - Substitui a base roxa saturada por superfícies grafite, com lavanda apenas nos destaques.

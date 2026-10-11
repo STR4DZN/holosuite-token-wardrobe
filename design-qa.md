@@ -30,3 +30,22 @@ Troca claro/escuro, seleção para prévia e janela estreita verificadas no nave
 Comparação pós-correção não encontrou outros P0/P1/P2 no escopo cromático desta revisão. A aceitação estética continua sendo do usuário.
 
 final result: passed
+
+
+# Regressão 0.10.2 — miniaturas e cabeçalho
+
+As capturas enviadas pelo usuário (`../upload/Screenshot_10(3).png` e `../upload/Screenshot_11(3).png`) mostram imagens minúsculas em faixas baixas e glyphs quadrados nos controles de fechar/opções.
+
+A prévia anterior não simulava a altura fixa dos botões nem os ícones aplicados diretamente ao botão do cabeçalho. O harness agora inclui ambos os conflitos para verificar a correção.
+
+- CSS 0.10.1 com a fixture: botão de imagem com 32 px de altura, imagem com 12 px; controles do cabeçalho em Arial em vez da fonte de ícones.
+- CSS 0.10.2 com a mesma fixture: botão de imagem 274 × 274 px, imagem 254 × 254 px; controles 28 × 28 px na fonte de ícones.
+- Janela de 380 px: cards 295 × 295 px, sem overflow lateral (clientWidth e scrollWidth = 365 px).
+- Temas claro/escuro, seleção para prévia, abertura/fechamento do menu, fechamento da janela e abertura/fechamento do editor conferidos no runtime simulado. Controles do editor também preservam a fonte de ícones.
+- A correção restringe os seletores ao shell do módulo; não substitui os handlers nativos do Foundry.
+- Evidência após correção: `../qa/prism-cards-header-0102.jpg`, viewport 1365 × 935.
+- Doze testes automatizados continuam passando. Console sem erros do módulo; mensagens de metadados da extensão pertencem ao navegador.
+
+Limite: este teste reproduz os conflitos CSS em runtime simulado; não executa um servidor real do Foundry.
+
+final result: passed
