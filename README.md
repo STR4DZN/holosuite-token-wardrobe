@@ -1,4 +1,4 @@
-# HoloSuite Token Wardrobe v0.10.2 — Prism
+# HoloSuite Token Wardrobe v0.10.3 — Prism
 
 Módulo standalone de gerenciamento de artes de token para Foundry VTT v13.351.
 
@@ -10,7 +10,9 @@ Cada player e GM escolhe em **Configurar Configurações → HoloSuite Token War
 
 Há uma preferência individual para **Reduzir movimentos do Wardrobe**; a configuração de movimento reduzido do sistema também é respeitada.
 
-Selecione uma arte para ver a prévia e clique em **Aplicar no token** para confirmar. Use as abas dos personagens, filtro de favoritas e busca para organizar a biblioteca. A busca permanece ao favoritar ou renomear uma entrada. Sem token, a coleção continua visível, mas a aplicação e preparação de imagem exigem um token na cena.
+Selecione uma arte para ver a prévia e clique em **Aplicar no token** para confirmar. Use o seletor de personagem, filtro de favoritas e busca para organizar a biblioteca. A busca permanece ao favoritar ou renomear uma entrada. Sem token, a coleção continua visível, mas a aplicação e preparação de imagem exigem um token na cena.
+
+A indicação **Em uso** muda após a confirmação da aplicação e acompanha alterações externas do token. A galeria tem rolagem própria, com busca, filtros, destino e prévia visíveis na janela padrão. Os cards usam tamanho intermediário, limitado a 180 px. **Adicionar uma arte** abre um painel sobre a biblioteca, sem deslocar o botão Aplicar. Em janelas muito pequenas, o layout empilha os painéis para manter a leitura.
 
 O recorte aceita arraste, zoom e setas do teclado (5 px; Shift + setas: 20 px). Remover uma entrada pede confirmação e mantém a textura já aplicada no token.
 

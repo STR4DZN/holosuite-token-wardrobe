@@ -1766,7 +1766,55 @@ class TokenWardrobeApp extends BaseApplication {
     this.galleryFilter = "all";
     this.galleryOrder = "favorites";
     this.scrollTop = 0;
+    this.confirmedTextures = new Map();
+    this.applying = false;
     wardrobeApplications.add(this);
+  }
+
+  // A GM acknowledgment can arrive before Foundry updates this client's document.
+  // Keep it until the document catches up; authoritative updateToken events win.
+  activeTexture(token) {
+    if (!token) return "";
+    const current = token.document.texture?.src ?? "";
+    const confirmed = this.confirmedTextures.get(token.id);
+    if (!confirmed) return current;
+    if (confirmed.document !== token.document || current !== confirmed.previousSrc) {
+      this.confirmedTextures.delete(token.id);
+      return current;
+    }
+    return confirmed.src;
+  }
+
+  syncTokenAppearance(tokenId, src, authoritative = false) {
+    const token = canvas?.tokens?.get?.(tokenId);
+    if (!token) return;
+    if (authoritative) this.confirmedTextures.delete(tokenId);
+    else if (token.document.texture?.src !== src) {
+      this.confirmedTextures.set(tokenId, {document: token.document, previousSrc: token.document.texture?.src, src});
+    }
+    if (this.tokenId === tokenId) this.syncAppearanceControls(src);
+  }
+
+  syncAppearanceControls(src) {
+    const root = this.element;
+    if (!root || !this.rendered) return;
+    const token = this.actor ? resolveToken(this.actor, this.tokenId) : null;
+    const activeSrc = src ?? this.activeTexture(token);
+    for (const card of root.querySelectorAll('.twl-card')) {
+      const active = Boolean(token && card.dataset.src === activeSrc);
+      card.classList.toggle('is-active', active);
+      const badge = card.querySelector('.twl-active-badge');
+      if (badge) badge.hidden = !active;
+    }
+    const button = root.querySelector('[data-action="switchImage"]');
+    if (!button) return;
+    const active = Boolean(token && button.dataset.src === activeSrc);
+    button.disabled = this.applying || !token || active;
+    button.setAttribute('aria-busy', String(this.applying));
+    const label = button.querySelector('[data-role="apply-label"]');
+    if (label) label.textContent = this.applying ? "Aplicando…" : active ? "Aparência em uso" : "Aplicar no token";
+    const status = root.querySelector('[data-role="selection-status"]');
+    if (status) status.textContent = active ? "Em uso neste token" : "Prévia · ainda não aplicada";
   }
 
   get actor() {
@@ -1801,7 +1849,7 @@ class TokenWardrobeApp extends BaseApplication {
     if (token) this.tokenId = token.id;
 
     const gallery = actor ? getGallery(actor) : [];
-    const activeSrc = token?.document.texture?.src ?? "";
+    const activeSrc = this.activeTexture(token);
     const selected = gallery.find(entry => entry.id === this.selectedId)
       ?? gallery.find(entry => entry.src === activeSrc)
       ?? gallery[0] ?? null;
@@ -1835,7 +1883,7 @@ class TokenWardrobeApp extends BaseApplication {
       actorInitial: String(actor?.name ?? "?").slice(0, 1).toUpperCase(),
       selected: selected ? {...selected, active: selected.src === activeSrc} : null,
       hasSelection: Boolean(selected),
-      canApplySelection: Boolean(token && selected && selected.src !== activeSrc),
+      canApplySelection: Boolean(!this.applying && token && selected && selected.src !== activeSrc),
       galleryCount: gallery.length,
       favoriteCount: gallery.filter(entry => entry.favorite).length,
       showAll: this.galleryFilter === "all",
@@ -1858,7 +1906,7 @@ class TokenWardrobeApp extends BaseApplication {
       })),
       gallery: filteredGallery.map((entry, index) => ({
         ...entry,
-        active: token?.document.texture?.src === entry.src,
+        active: Boolean(token && activeSrc === entry.src),
         selected: entry.id === this.selectedId,
         motionIndex: Math.min(index, 10),
         searchText: normalizedSearch(`${entry.name} ${entry.source}`)
@@ -1867,7 +1915,7 @@ class TokenWardrobeApp extends BaseApplication {
       hasToken: Boolean(token),
       multipleActors: actors.length > 1,
       multipleTokens: tokens.length > 1,
-      currentSrc: token?.document.texture?.src ?? "",
+      currentSrc: activeSrc,
       canSubmitUrl: canAccessActor(actor),
       canEditCrop: canAccessActor(actor),
       canManage: canManageActor(actor),
@@ -1888,7 +1936,24 @@ class TokenWardrobeApp extends BaseApplication {
     const root = this.element;
     if (!root) return;
     applyWardrobePreferences(this);
-    const scroll = root.querySelector('.twl-scroll');
+    this.syncAppearanceControls();
+    if (this.addPanelListenerRoot !== root) {
+      this.addPanelListenerRoot = root;
+      root.addEventListener("click", event => {
+        const panel = root.querySelector('.twl-add-panel');
+        if (panel?.open && !panel.contains(event.target)) panel.open = false;
+      });
+      root.addEventListener("keydown", event => {
+        const panel = root.querySelector('.twl-add-panel');
+        if (event.key === "Escape" && panel?.open) {
+          event.preventDefault();
+          event.stopPropagation();
+          panel.open = false;
+          panel.querySelector('summary')?.focus();
+        }
+      });
+    }
+    const scroll = root.querySelector('.twl-gallery-scroll');
     if (scroll) {
       scroll.scrollTop = this.scrollTop;
       scroll.addEventListener("scroll", () => { this.scrollTop = scroll.scrollTop; }, {passive: true});
@@ -2077,9 +2142,10 @@ class TokenWardrobeApp extends BaseApplication {
 
 
   static async #switchImage(event, target) {
-    if (target?.disabled) return;
+    if (target?.disabled || this.applying) return;
 
-    target.disabled = true;
+    this.applying = true;
+    this.syncAppearanceControls();
 
     try {
       const actor = this.actor;
@@ -2091,17 +2157,17 @@ class TokenWardrobeApp extends BaseApplication {
         tokenId: token.id,
         src: target.dataset.src
       });
+      this.syncTokenAppearance(token.id, target.dataset.src);
 
       if (game.settings.get(MODULE_ID, SETTING_AUTO_CLOSE) === true) {
         await this.close();
-      } else {
-        this.render({force: true});
       }
     } catch (error) {
       console.error(`${MODULE_TITLE} | switchImage failed`, error);
       notify("error", "Não foi possível trocar a aparência desse token.");
     } finally {
-      target.disabled = false;
+      this.applying = false;
+      this.syncAppearanceControls();
     }
   }
 
@@ -2344,4 +2410,20 @@ Hooks.once("ready", async () => {
 
 Hooks.on(`${MODULE_ID}.galleryChanged`, () => {
   if (appInstance?.rendered) appInstance.render({force: true});
+});
+
+Hooks.on(`${MODULE_ID}.imageChanged`, ({tokenId, src}) => {
+  for (const app of wardrobeApplications) {
+    if (app instanceof TokenWardrobeApp) app.syncTokenAppearance(tokenId, src);
+  }
+});
+
+Hooks.on("updateToken", (document, changes) => {
+  const src = changes["texture.src"] ?? changes.texture?.src;
+  if (typeof src !== "string") return;
+  const token = canvas?.tokens?.get?.(document.id);
+  if (token?.document !== document) return;
+  for (const app of wardrobeApplications) {
+    if (app instanceof TokenWardrobeApp) app.syncTokenAppearance(document.id, src, true);
+  }
 });

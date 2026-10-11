@@ -49,3 +49,14 @@ A prévia anterior não simulava a altura fixa dos botões nem os ícones aplica
 Limite: este teste reproduz os conflitos CSS em runtime simulado; não executa um servidor real do Foundry.
 
 final result: passed
+
+# Regressão 0.10.3 — Em uso e biblioteca compacta
+
+- Execução do JavaScript e templates reais em fixture Foundry, com teste de confirmação antes da atualização do documento local: “Em uso” e o botão são atualizados sem reconstruir a galeria. Busca, foco e rolagem permanecem.
+- 16 testes automatizados passam, incluindo falha de aplicação, atualização externa, duas janelas no mesmo token, troca de destino e seleção de outra prévia durante a requisição.
+- Verificação em Chrome com 18 aparências e atraso simulado de 1,5 s na sincronização da textura. Aplicar a entrada no fim da lista preservou `scrollTop: 1071`; a confirmação atualizou o badge e o status da prévia.
+- Janela de 980 × 740 px: botão de imagem 178 × 178 px (antes 274 × 274); três colunas. Área principal sem rolagem (639 px de conteúdo/área); galeria com rolagem própria (375 px de área para 1451 px de conteúdo). Inspetor sem rolagem nesse caso (607 px de conteúdo/área), incluindo Aplicar, Reenquadrar, Renomear e Remover.
+- Janelas de 780 e 560 px mantiveram o botão de aplicação visível. Em 380 px, o layout empilha os painéis e admite rolagem principal; não foi observado excesso horizontal. A grade usa um mínimo de 132 px nessa largura para acomodar duas colunas quando houver espaço suficiente.
+- Temas claro e escuro, formulário de adição sobre a biblioteca, fechamento desse painel com Escape, menu e fechamento nativos conferidos na fixture. As cores Prism foram mantidas.
+- Evidências locais: `../qa/prism-compacto-0103.jpg` e `../qa/prism-claro-0103.jpg`. São capturas do ambiente de verificação, com tokens de exemplo; não representam uma sessão real do Foundry conectada ao mundo do usuário.
+- `npm run check`, `npm test`, empacotamento e `git diff --check` passam. A integração com o servidor/socketlib real deve ser conferida na sessão Foundry.

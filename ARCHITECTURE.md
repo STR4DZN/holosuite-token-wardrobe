@@ -1,4 +1,4 @@
-# Arquitetura — HoloSuite Token Wardrobe v0.10.2
+# Arquitetura — HoloSuite Token Wardrobe v0.10.3
 
 ## Objetivo
 
@@ -140,3 +140,12 @@ O runtime usa `scripts/main-prism.js`, `styles/token-wardrobe-prism.css` e `temp
 `theme` (`light`/`dark`) e `reducedMotion` são configurações de escopo `user` do Foundry v13. A mudança aplica atributos ao elemento de cada janela aberta, inclusive ao editor, sem recriar o canvas ou alterar o recorte. As cores e os movimentos ficam restritos às classes do Wardrobe. O sistema também respeita `prefers-reduced-motion`.
 
 O esquema das flags continua na versão 5. O pipeline de imagem, a borda fixa, as permissões e o relay autenticado não mudam nesta versão.
+
+
+### Estado da aparência e rolagem (0.10.3)
+
+Cada `TokenWardrobeApp` mantém confirmações de textura por token/documento quando a resposta de aplicação precede a atualização do documento local. `activeTexture` reconcilia o cache com o documento; `updateToken` é autoritativo e `imageChanged` propaga a confirmação às janelas abertas do destino. Não há atualização otimista antes do sucesso nem mutação extra do TokenDocument.
+
+A aplicação atualiza apenas classes, badges, status e disponibilidade do botão, sem renderizar novamente o app. Um bloqueio de aplicação impede requisições simultâneas mesmo após selecionar outra prévia. O documento continua sendo alterado exclusivamente pelo fluxo validado de `switchImage`.
+
+A biblioteca usa um contêiner de rolagem próprio, cuja posição é restaurada em renders necessários de filtros/coleção. O inspetor permanece ao lado; tem rolagem de segurança para janelas baixas ou avisos extensos. Abaixo de 480 px de largura, os painéis se empilham e a área principal pode rolar.

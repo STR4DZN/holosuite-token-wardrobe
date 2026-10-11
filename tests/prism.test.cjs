@@ -16,8 +16,11 @@ function environment(){
   const actor={id:'actor1',name:'Angelus',isOwner:true,ownership:{player:3},state:{schemaVersion:5,gallery:fixture},getFlag(n,k){return k==='state'?this.state:null},async setFlag(n,k,v){this.state=v},testUserPermission(){return this.isOwner}};
   const other={...actor,id:'actor2',name:'Lyra',state:{schemaVersion:5,gallery:fixture.map(x=>({...x,id:'lyra-'+x.id}))}};
   const token={id:'t1',name:'Angelus principal',actor,isOwner:true,document:{texture:{src:'tokens/vanguarda.webp'},isOwner:true,canUserModify(){return true},async update(v){updates.push(v);this.texture.src=v['texture.src']}}};
+  token.document.id=token.id;
   const token2={...token,id:'t2',name:'Angelus alternativo',document:{...token.document,texture:{src:'tokens/aurora.webp'}}};
+  token2.document.id=token2.id;
   const token3={...token,id:'t3',name:'Lyra',actor:other,document:{...token.document,texture:{src:'tokens/vanguarda.webp'}}};
+  token3.document.id=token3.id;
   const tokenMap=new Map([[token.id,token],[token2.id,token2],[token3.id,token3]]);
   const actorMap=new Map([[actor.id,actor],[other.id,other]]);
   class Application {
@@ -49,7 +52,62 @@ test('Selecionar apenas mostra prévia; Aplicar altera somente texture.src',asyn
 test('Busca sem acentos, vazio e estado preservado após favorito',async()=>{const e=environment();e.app.render();await e.flush();let search=e.app.element.querySelector('[data-role=search]');search.value='operacao';search.dispatchEvent(new e.w.Event('input'));assert.equal(e.app.element.querySelectorAll('.twl-card:not([hidden])').length,1);await e.click('[data-action=toggleFavorite][data-id=a2]');assert.equal(e.app.element.querySelector('[data-role=search]').value,'operacao');assert.equal(e.app.element.querySelectorAll('.twl-card:not([hidden])').length,1);search=e.app.element.querySelector('[data-role=search]');search.value='inexistente';search.dispatchEvent(new e.w.Event('input'));assert.equal(e.app.element.querySelector('[data-role=search-empty]').hidden,false);await e.click('[data-action=clearSearch]');assert.equal(e.app.element.querySelectorAll('.twl-card:not([hidden])').length,3);e.dom.window.close()});
 test('Favoritas e ordenação usam coleção real',async()=>{const e=environment();e.app.render();await e.flush();await e.click('[data-action=filterGallery][data-filter=favorites]');assert.equal(e.app.element.querySelectorAll('.twl-card').length,2);const sort=e.app.element.querySelector('[data-role=gallery-sort]');sort.value='name';sort.dispatchEvent(new e.w.Event('change'));await e.flush();assert.equal(e.app.element.querySelector('.twl-card-footer strong').textContent,'Aurora');e.dom.window.close()});
 test('Biblioteca permanece visível sem token e Aplicar fica desabilitado',async()=>{const e=environment();e.w.canvas.tokens.placeables=[];e.w.canvas.tokens.get=()=>null;e.app.render();await e.flush();assert.equal(e.app.element.querySelectorAll('.twl-card').length,3);assert(e.app.element.querySelector('[data-action=switchImage]').disabled);assert.equal(e.app.element.querySelector('.twl-target strong').textContent,'Nenhum token na cena');e.dom.window.close()});
-test('Trocar personagem limpa seleção/busca e respeita ownership',async()=>{const e=environment();e.app.query='vanguarda';e.app.render();await e.flush();await e.click('[data-action=selectActor][data-id=actor2]');assert.equal(e.app.actorId,'actor2');assert.equal(e.app.query,'');assert.equal(e.app.element.querySelector('.twl-character h2').textContent,'Lyra');e.actor.isOwner=false;e.actor.ownership.player=0;assert.equal(e.w.game.holosuiteTokenWardrobe.getGallery(e.actor.id).length,0);e.dom.window.close()});
+test('Trocar personagem limpa seleção/busca e respeita ownership',async()=>{const e=environment();e.app.query='vanguarda';e.app.render();await e.flush();const select=e.app.element.querySelector('[data-role=actor-select]');select.value='actor2';select.dispatchEvent(new e.w.Event('change'));await e.flush();assert.equal(e.app.actorId,'actor2');assert.equal(e.app.query,'');assert.equal(e.app.element.querySelector('.twl-character h2').textContent,'Lyra');e.actor.isOwner=false;e.actor.ownership.player=0;assert.equal(e.w.game.holosuiteTokenWardrobe.getGallery(e.actor.id).length,0);e.dom.window.close()});
 test('Remover requer confirmação e mantém textura já aplicada',async()=>{const e=environment();e.app.render();await e.flush();await e.click('[data-action=removeImage]');assert.equal(e.actor.state.gallery.length,3);e.w.__confirm=true;await e.click('[data-action=removeImage]');assert.equal(e.actor.state.gallery.length,2);assert.equal(e.token.document.texture.src,'tokens/vanguarda.webp');assert.equal(e.updates.length,0);e.dom.window.close()});
 test('Templates vazios e sem personagem compilam com controles seguros',async()=>{const e=environment();e.actor.state.gallery=[];e.app.render();await e.flush();assert.equal(e.app.element.querySelectorAll('.twl-card').length,0);assert.equal(e.app.element.querySelector('[data-role=search-empty]').hidden,false);assert.equal(e.app.element.querySelector('.twl-preview'),null);const html=template({hasActor:false,themeLight:true});assert(html.includes('Nenhum personagem disponível'));e.dom.window.close()});
 test('Manifest aponta para arquivos presentes e tema não modifica processador/borda',()=>{const manifest=JSON.parse(fs.readFileSync(path.join(root,'module.json')));for(const file of [...manifest.esmodules,...manifest.styles,'templates/main.hbs','templates/cropper-prism.hbs','assets/fixed-border.png'])assert(fs.existsSync(path.join(root,file)),file);assert(source.includes('const SCHEMA_VERSION = 5;'));assert(source.includes('const OUTPUT_SIZE = 512;'));assert(source.includes('assets/fixed-border.png'));assert(!fs.readFileSync(path.join(root,'styles/token-wardrobe-prism.css'),'utf8').match(/(?:^|\})\s*(?:body|:root)\s*\{/));});
+
+
+test('Aplicar atualiza Em uso sem reconstruir DOM nem perder busca e rolagem, antes da textura local sincronizar',async()=>{
+  const e=environment();e.app.render();await e.flush();await e.click('[data-action=selectImage][data-id=a2]');
+  const search=e.app.element.querySelector('[data-role=search]');search.value='operacao';search.dispatchEvent(new e.w.Event('input'));
+  const scroll=e.app.element.querySelector('.twl-gallery-scroll');scroll.scrollTop=87;scroll.dispatchEvent(new e.w.Event('scroll'));
+  e.token.document.update=async v=>{e.updates.push(v)};
+  await e.click('[data-action=switchImage]');
+  assert.equal(e.token.document.texture.src,'tokens/vanguarda.webp');
+  assert.equal(e.app.element.querySelector('[data-role=search]'),search);
+  assert.equal(scroll.scrollTop,87);assert.equal(e.app.scrollTop,87);
+  assert.equal(e.app.element.querySelectorAll('.twl-active-badge:not([hidden])').length,1);
+  assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/eclipse.webp');
+  assert.equal(e.app.element.querySelector('[data-role=selection-status]').textContent,'Em uso neste token');
+  assert(e.app.element.querySelector('[data-action=switchImage]').disabled);
+  e.app.render();await e.flush();assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/eclipse.webp');
+  e.token.document.texture.src='tokens/eclipse.webp';e.w.Hooks.callAll('updateToken',e.token.document,{texture:{src:'tokens/eclipse.webp'}});
+  assert.equal(e.app.confirmedTextures.size,0);
+  e.dom.window.close();
+});
+
+test('Mudanças externas de textura atualizam todos os Wardrobes do destino, sem afetar outro token',async()=>{
+  const e=environment();const second=new e.w.__wardrobe.TokenWardrobeApp({actorId:e.actor.id,tokenId:e.token.id});
+  e.app.render();second.render();await e.flush();await second.pending;
+  e.token.document.texture.src='tokens/aurora.webp';e.w.Hooks.callAll('updateToken',e.token.document,{'texture.src':'tokens/aurora.webp'});
+  for(const app of [e.app,second])assert.equal(app.element.querySelector('.is-active').dataset.src,'tokens/aurora.webp');
+  const select=e.app.element.querySelector('[data-role=token-select]');select.value=e.token2.id;select.dispatchEvent(new e.w.Event('change'));await e.flush();
+  e.token.document.texture.src='tokens/eclipse.webp';e.w.Hooks.callAll('updateToken',e.token.document,{texture:{src:'tokens/eclipse.webp'}});
+  assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/aurora.webp');
+  assert.equal(second.element.querySelector('.is-active').dataset.src,'tokens/eclipse.webp');
+  e.dom.window.close();
+});
+
+test('Falha ao aplicar mantém Em uso anterior e libera nova tentativa',async()=>{
+  const e=environment();e.app.render();await e.flush();await e.click('[data-action=selectImage][data-id=a2]');
+  e.token.document.update=async()=>{throw new Error('Teste de falha de atualização')};e.w.console.error=()=>{};
+  await e.click('[data-action=switchImage]');
+  assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/vanguarda.webp');
+  assert.equal(e.app.element.querySelector('[data-role=selection-status]').textContent,'Prévia · ainda não aplicada');
+  assert(!e.app.element.querySelector('[data-action=switchImage]').disabled);assert.equal(e.app.confirmedTextures.size,0);
+  assert.equal(e.notifications.at(-1)[0],'error');e.dom.window.close();
+});
+
+test('Seleção durante aplicação não marca a nova prévia como Em uso nem permite requisição duplicada',async()=>{
+  const e=environment();e.app.render();await e.flush();await e.click('[data-action=selectImage][data-id=a2]');
+  let finish;const applied=new Promise(resolve=>{finish=resolve});e.token.document.update=async v=>{await applied;e.token.document.texture.src=v['texture.src']};
+  e.app.element.querySelector('[data-action=switchImage]').click();const request=e.app.action;
+  for(let i=0;i<8;i++)await Promise.resolve();
+  e.app.element.querySelector('[data-action=selectImage][data-id=a3]').click();await e.app.action;await e.app.pending;
+  assert(e.app.element.querySelector('[data-action=switchImage]').disabled);
+  finish();await request;await e.flush();
+  assert.equal(e.app.element.querySelector('.is-active').dataset.src,'tokens/eclipse.webp');
+  assert.equal(e.app.element.querySelector('[data-role=selection-status]').textContent,'Prévia · ainda não aplicada');
+  assert(!e.app.element.querySelector('[data-action=switchImage]').disabled);e.dom.window.close();
+});

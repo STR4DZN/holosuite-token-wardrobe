@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.3 — estado em tempo real e biblioteca compacta
+
+- Atualiza “Em uso”, a prévia e o botão Aplicar após a confirmação da troca, incluindo quando a confirmação chega antes da sincronização local da textura.
+- Acompanha eventos `updateToken` e `imageChanged` nas janelas abertas; mantém o estado separado por token e não marca aplicações que falharam.
+- Aplica sem reconstruir a galeria, preservando busca, foco e posição de rolagem; bloqueia requisições duplicadas durante a aplicação.
+- Reduz os cards para tamanho intermediário, limitado a 180 px, com três colunas na janela padrão.
+- Concentra a rolagem na biblioteca; busca, filtros, destino, prévia e aplicação permanecem visíveis no tamanho padrão.
+- Substitui abas de personagem por seletor compacto e abre a adição de arte sobre a biblioteca, sem deslocar os controles principais.
+- Mantém os temas Prism, controles nativos, pipeline e permissões.
+
 ## 0.10.2 — imagens legíveis e controles nativos
 
 - Corrige as miniaturas achatadas por altura fixa de botões do Foundry: área quadrada com tamanho definido pelo card, imagens em `contain`.
